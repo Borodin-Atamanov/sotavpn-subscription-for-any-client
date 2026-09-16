@@ -650,6 +650,14 @@ class VendorRefusalCheck(unittest.TestCase):
         self.assertIn('\t"detail": "Invalid access key"', kept)
 
 
+class ReadmeCheck(unittest.TestCase):
+    def test_the_readme_names_the_log_files_with_the_suffixes_of_the_settings(self):
+        with open(os.path.join(bridge.PROGRAM_DIRECTORY, "README.md"), encoding="utf-8") as handle:
+            readme = handle.read()
+        self.assertIn(f"logs/{bridge.answer_file_name('<access key>')}", readme)
+        self.assertIn(f"logs/{bridge.error_file_name('<access key>')}", readme)
+
+
 class IgnoreRuleCheck(unittest.TestCase):
     def test_the_log_directory_never_enters_the_repository(self):
         with open(os.path.join(bridge.PROGRAM_DIRECTORY, ".gitignore"), encoding="utf-8") as handle:

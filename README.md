@@ -112,7 +112,7 @@ logs/<access key>.json holds the answers the vendor gave during the last
 pass, as readable JSON printed with tabs, and an empty line separates two
 answers. One account keeps one file, so two accounts never mix.
 
-logs/<access key>.errors.txt holds the bodies the vendor sent with a refusal,
+logs/<access key>-errors.log holds the bodies the vendor sent with a refusal,
 with the moment and the code of the refusal in front of each body. A refusal
 is an answer in words rather than in JSON, so it stays apart from the answers
 of the same pass and never breaks the stream of documents. A pass that goes
