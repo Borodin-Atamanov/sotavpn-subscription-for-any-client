@@ -193,7 +193,7 @@ USER_INSTALL = {
 # restart of the service is the moment the fight is decided: the service keeps
 # coming back every half a minute and the copy that was started by hand goes
 # after one such round.
-SERVICE_RESTART_PAUSE_SECONDS = 30
+SERVICE_RESTART_PAUSE_SECONDS = 42
 
 # What to do when a port is already held. The program asks the holder to stop
 # and takes the port, but only when the holder is another copy of this very
@@ -202,4 +202,4 @@ SERVICE_RESTART_PAUSE_SECONDS = 30
 # hard signal, and both are counted in seconds.
 TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = 1
 BUSY_PORT_SOFT_WAIT_SECONDS = 5
-BUSY_PORT_HARD_WAIT_SECONDS = 3
+BUSY_PORT_HARD_WAIT_SECONDS = 7
