@@ -198,15 +198,42 @@ class InstallationCheck(unittest.TestCase):
             self.assertFalse(name.endswith(".service"), name)
 
     def test_the_journal_of_the_previous_run_does_not_count_as_the_new_one(self):
-        old = ["2026-09-16 10:51:52 plain HTTP is listening on http://127.0.0.1:25080"]
-        fresh = ["2026-09-16 11:05:00 plain HTTP is listening on http://127.0.0.1:25080"]
-        self.assertFalse(installer.the_run_is_fresh_and_its_ports_are_open(old, old))
-        self.assertFalse(installer.the_run_is_fresh_and_its_ports_are_open(fresh, fresh))
-        self.assertFalse(installer.the_run_is_fresh_and_its_ports_are_open([], old))
-        self.assertTrue(installer.the_run_is_fresh_and_its_ports_are_open(fresh, old))
-        # The very first installation has no journal of a previous run at all,
-        # so whatever the file holds belongs to the new run.
-        self.assertTrue(installer.the_run_is_fresh_and_its_ports_are_open(fresh, []))
+        self.assertFalse(installer.the_journal_belongs_to_a_new_run(17, 17))
+        self.assertFalse(installer.the_journal_belongs_to_a_new_run(None, 17))
+        self.assertFalse(installer.the_journal_belongs_to_a_new_run(None, None))
+        self.assertTrue(installer.the_journal_belongs_to_a_new_run(18, 17))
+        # The very first installation has no journal of a previous run at all.
+        self.assertTrue(installer.the_journal_belongs_to_a_new_run(17, None))
+
+    def test_the_wait_answers_the_lines_of_the_new_run_only(self):
+        kept_identity = installer.identity_of_the_journal
+        kept_lines = installer.journal_lines_of_the_installation
+        kept_seconds = installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM
+        steps = [
+            (17, ["2026-09-16 10:57:19 plain HTTP is listening on http://127.0.0.1:25080"]),
+            (18, ["2026-09-16 11:00:05 plain HTTP is listening on http://127.0.0.1:25080"]),
+        ]
+        asked = []
+
+        def identity_of_the_journal(_locations):
+            asked.append(1)
+            return steps[min(len(asked) - 1, len(steps) - 1)][0]
+
+        def lines_of_the_journal(_locations):
+            return steps[min(len(asked) - 1, len(steps) - 1)][1]
+
+        try:
+            installer.identity_of_the_journal = identity_of_the_journal
+            installer.journal_lines_of_the_installation = lines_of_the_journal
+            installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM = 5
+            self.assertEqual(
+                installer.wait_for_the_program_to_open_its_ports(self.locations, 17),
+                ["2026-09-16 11:00:05 plain HTTP is listening on http://127.0.0.1:25080"],
+            )
+        finally:
+            installer.identity_of_the_journal = kept_identity
+            installer.journal_lines_of_the_installation = kept_lines
+            installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM = kept_seconds
 
     def test_the_whole_journal_of_the_run_is_read_and_not_a_cut_of_it(self):
         installer.install_the_program(self.source, self.locations)

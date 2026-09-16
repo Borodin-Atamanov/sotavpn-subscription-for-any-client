@@ -272,28 +272,38 @@ def journal_lines_of_the_installation(locations):
         return []
 
 
-def the_run_is_fresh_and_its_ports_are_open(lines, lines_of_the_previous_run):
-    """Whether these journal lines belong to a new run that has opened its ports.
+def identity_of_the_journal(locations):
+    """What tells one journal file from the next one: its number in the file system.
 
-    The journal of the previous run says that its ports were open as well, and
-    systemd answers a restart before the new program has put the old journal
-    aside, so the two have to be told apart: the lines must differ from the
-    ones read before the restart.
+    The program moves the journal of the previous run aside and opens a new
+    file, so that number changes with every run. The content of the old file
+    cannot be used instead: the run that is going away writes its last lines
+    into it after the restart, so the old file keeps changing as well.
     """
-    if not lines or lines == lines_of_the_previous_run:
-        return False
-    return any("is listening on" in line for line in lines)
+    path = os.path.join(locations["log_directory"], settings.JOURNAL_FILE_NAME)
+    try:
+        return os.stat(path).st_ino
+    except OSError:
+        return None
 
 
-def wait_for_the_program_to_open_its_ports(locations, lines_of_the_previous_run, seconds=None):
-    """Wait a moment for the new run to say that its ports are open, and answer its lines."""
+def the_journal_belongs_to_a_new_run(identity, identity_of_the_previous_run):
+    """Whether this is not the journal file that was read before the restart."""
+    if identity_of_the_previous_run is None:
+        return identity is not None
+    return identity is not None and identity != identity_of_the_previous_run
+
+
+def wait_for_the_program_to_open_its_ports(locations, identity_of_the_previous_run, seconds=None):
+    """Wait for the new run to write its own journal and say that its ports are open."""
     if seconds is None:
         seconds = SECONDS_TO_WAIT_FOR_THE_PROGRAM
     waited = 0
     while waited < seconds:
-        lines = journal_lines_of_the_installation(locations)
-        if the_run_is_fresh_and_its_ports_are_open(lines, lines_of_the_previous_run):
-            return lines
+        if the_journal_belongs_to_a_new_run(identity_of_the_journal(locations), identity_of_the_previous_run):
+            lines = journal_lines_of_the_installation(locations)
+            if any("is listening on" in line for line in lines):
+                return lines
         time.sleep(1)
         waited += 1
     return []
@@ -354,19 +364,21 @@ def install_the_program(source_directory, locations):
     say(f"the service file is {locations['unit_file']}")
     if make_the_command_link(locations):
         say(f"the command is {locations['command_link']}")
-    lines_of_the_previous_run = journal_lines_of_the_installation(locations)
+    identity_of_the_previous_run = identity_of_the_journal(locations)
     if locations["mode"] == USER_MODE:
         enable_linger()
     enable_the_service(locations)
-    lines = wait_for_the_program_to_open_its_ports(locations, lines_of_the_previous_run)
+    lines = wait_for_the_program_to_open_its_ports(locations, identity_of_the_previous_run)
     if lines:
         say("the program runs and says that its ports are open")
     else:
-        lines = journal_lines_of_the_installation(locations)
-        if lines == lines_of_the_previous_run:
+        if not the_journal_belongs_to_a_new_run(
+            identity_of_the_journal(locations), identity_of_the_previous_run
+        ):
             say("the journal still belongs to the previous run, so the new run has not written anything yet")
         else:
             say("the new run has not said yet that its ports are open, look at the journal in a few seconds")
+        lines = journal_lines_of_the_installation(locations)
     for line in lines:
         print(line, flush=True)
     say_where_the_program_stands(locations)
