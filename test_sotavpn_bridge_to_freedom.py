@@ -11,6 +11,8 @@ the servers, so they are safe to run anywhere.
 import base64
 import json
 import os
+import shutil
+import tempfile
 import time
 import unittest
 
@@ -22,6 +24,23 @@ import sotavpn_bridge_to_freedom as bridge
 settings.VERBOSE = 0
 unittest.TextTestResult.separator1 = ""
 unittest.TextTestResult.separator2 = ""
+
+LOGS_DIRECTORY_OF_THE_CHECKS = ""
+KEPT_LOGS_DIRECTORY = ""
+
+
+def setUpModule():
+    """Send every log of the checks into a temporary directory, not into the repository."""
+    global LOGS_DIRECTORY_OF_THE_CHECKS, KEPT_LOGS_DIRECTORY
+    KEPT_LOGS_DIRECTORY = settings.LOGS_DIRECTORY
+    LOGS_DIRECTORY_OF_THE_CHECKS = tempfile.mkdtemp(prefix="bridge-logs-of-the-checks-")
+    settings.LOGS_DIRECTORY = LOGS_DIRECTORY_OF_THE_CHECKS
+
+
+def tearDownModule():
+    """Take the temporary log directory away and put the setting back."""
+    settings.LOGS_DIRECTORY = KEPT_LOGS_DIRECTORY
+    shutil.rmtree(LOGS_DIRECTORY_OF_THE_CHECKS, ignore_errors=True)
 
 
 def sample_nodes():
@@ -328,6 +347,127 @@ class SettingsCheck(unittest.TestCase):
     def test_times_are_reasonable(self):
         self.assertGreater(settings.SNAPSHOT_FRESH_SECONDS, 0)
         self.assertGreater(settings.VENDOR_TIME_OUT_SECONDS, 0)
+
+
+class LogArchiveCheck(unittest.TestCase):
+    """The raw vendor answers and the journal, in a directory of their own."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-logs-")
+        self.key = "the-access-key-of-the-log-checks"
+        self.other_key = "the-access-key-of-the-other-account"
+        self.kept_directory = settings.LOGS_DIRECTORY
+        self.kept_journal = bridge.JOURNAL_FILE
+        settings.LOGS_DIRECTORY = self.directory
+        bridge.JOURNAL_FILE = None
+
+    def tearDown(self):
+        settings.LOGS_DIRECTORY = self.kept_directory
+        bridge.JOURNAL_FILE = self.kept_journal
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def answer_path(self, key=None):
+        return os.path.join(self.directory, bridge.answer_file_name(key or self.key))
+
+    def journal_path(self):
+        return os.path.join(self.directory, settings.JOURNAL_FILE_NAME)
+
+    def moment_of(self, path):
+        return time.strftime(settings.ARCHIVE_MOMENT_FORMAT, time.localtime(os.path.getmtime(path)))
+
+    def read(self, path):
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+
+    def close_the_journal(self):
+        if bridge.JOURNAL_FILE is not None:
+            bridge.JOURNAL_FILE.close()
+            bridge.JOURNAL_FILE = None
+
+    def test_the_first_pass_opens_the_file_of_its_own_account(self):
+        bridge.start_a_fresh_answer_file(self.key)
+        bridge.keep_vendor_answer(self.key, '{"locations": []}')
+        self.assertEqual(self.read(self.answer_path()), '{"locations": []}\n')
+        self.assertEqual(os.listdir(self.directory), [bridge.answer_file_name(self.key)])
+
+    def test_one_pass_keeps_every_answer_of_that_pass_in_one_file(self):
+        bridge.start_a_fresh_answer_file(self.key)
+        for answer in ('{"a": 1}', '[{"b": 2}]', '{"c": 3}'):
+            bridge.keep_vendor_answer(self.key, answer)
+        self.assertEqual(self.read(self.answer_path()).splitlines(), ['{"a": 1}', '[{"b": 2}]', '{"c": 3}'])
+        self.assertEqual(len(os.listdir(self.directory)), 1)
+
+    def test_two_accounts_keep_their_answers_apart(self):
+        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_answer_file(self.other_key)
+        bridge.keep_vendor_answer(self.key, '{"account": "first"}')
+        bridge.keep_vendor_answer(self.other_key, '{"account": "second"}')
+        self.assertEqual(self.read(self.answer_path()), '{"account": "first"}\n')
+        self.assertEqual(self.read(self.answer_path(self.other_key)), '{"account": "second"}\n')
+        self.assertEqual(
+            sorted(os.listdir(self.directory)),
+            sorted([bridge.answer_file_name(self.key), bridge.answer_file_name(self.other_key)]),
+        )
+
+    def test_the_next_pass_moves_the_previous_answers_into_a_dated_directory(self):
+        bridge.start_a_fresh_answer_file(self.key)
+        bridge.keep_vendor_answer(self.key, '{"first": true}')
+        moment = self.moment_of(self.answer_path())
+        bridge.start_a_fresh_answer_file(self.key)
+        bridge.keep_vendor_answer(self.key, '{"second": true}')
+        self.assertEqual(self.read(self.answer_path()), '{"second": true}\n')
+        archived = os.path.join(self.directory, moment, bridge.answer_file_name(self.key))
+        self.assertEqual(self.read(archived), '{"first": true}\n')
+
+    def test_a_pass_that_arrives_first_finds_nothing_to_move(self):
+        bridge.start_a_fresh_answer_file(self.key)
+        self.assertEqual(os.listdir(self.directory), [])
+
+    def test_two_files_created_in_the_same_second_get_two_directories(self):
+        os.makedirs(self.directory, exist_ok=True)
+        first = os.path.join(self.directory, "first")
+        second = os.path.join(self.directory, "second")
+        for path in (first, second):
+            open(path, "w", encoding="utf-8").close()
+        same = time.time()
+        os.utime(first, (same, same))
+        os.utime(second, (same, same))
+        moved_first = bridge.move_into_a_dated_directory(first)
+        moved_second = bridge.move_into_a_dated_directory(second)
+        self.assertNotEqual(os.path.dirname(moved_first), os.path.dirname(moved_second))
+        self.assertTrue(os.path.exists(moved_first))
+        self.assertTrue(os.path.exists(moved_second))
+
+    def test_a_file_that_is_not_there_is_not_moved(self):
+        self.assertEqual(bridge.move_into_a_dated_directory(self.answer_path()), "")
+
+    def test_the_journal_of_the_previous_run_moves_away_on_a_new_start(self):
+        os.makedirs(self.directory, exist_ok=True)
+        with open(self.journal_path(), "w", encoding="utf-8") as handle:
+            handle.write("the run of yesterday\n")
+        moment = self.moment_of(self.journal_path())
+        bridge.start_journal()
+        bridge.tell("the new run writes its own journal")
+        fresh = self.read(self.journal_path())
+        self.close_the_journal()
+        self.assertNotIn("yesterday", fresh)
+        self.assertIn("the new run writes its own journal", fresh)
+        self.assertIn("yesterday", self.read(os.path.join(self.directory, moment, settings.JOURNAL_FILE_NAME)))
+
+    def test_the_quiet_mode_still_writes_the_journal(self):
+        self.assertEqual(settings.VERBOSE, 0)
+        bridge.start_journal()
+        bridge.tell("a line nobody sees on the screen")
+        kept = self.read(self.journal_path())
+        self.close_the_journal()
+        self.assertIn("a line nobody sees on the screen", kept)
+
+
+class IgnoreRuleCheck(unittest.TestCase):
+    def test_the_log_directory_never_enters_the_repository(self):
+        with open(os.path.join(bridge.PROGRAM_DIRECTORY, ".gitignore"), encoding="utf-8") as handle:
+            rules = [line.strip() for line in handle]
+        self.assertIn("logs/", rules)
         self.assertGreaterEqual(settings.VENDOR_ATTEMPTS, 1)
 
     def test_verbose_is_a_switch_of_one_and_zero(self):

@@ -22,6 +22,15 @@ How it works
 How to run it
     python3 sotavpn_bridge_to_freedom.py
 
+What it keeps
+    Every answer the vendor gives is written to logs/<access key>.jsonl
+    exactly as it arrived, one account in one file, and the answers of the
+    previous pass move into a directory named after the moment that file was
+    created. The journal of the run goes to logs/log.log and moves the same
+    way on the next start. The logs directory is listed in .gitignore,
+    because a raw vendor answer carries the addresses and the keys of the
+    account.
+
 Where the values live
     Every value is in settings.py next to this file. That file is imported
     below, and the import itself is execution: nothing else is configured.
@@ -70,11 +79,140 @@ def path_next_to_the_program(path):
 
 
 def tell(message):
-    """Write one line into the journal, with the time in front of it."""
-    if not settings.VERBOSE:
+    """Write one line into the journal of this run and, when asked, onto the screen."""
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {settings.PROGRAM_NAME}: {message}"
+    write_journal_line(line)
+    if settings.VERBOSE:
+        print(line, flush=True)
+
+
+LOGS_LOCK = threading.RLock()
+JOURNAL_FILE = None
+JOURNAL_PROBLEM_REPORTED = False
+
+
+def logs_directory():
+    """The directory that keeps the raw vendor answers and the journal."""
+    return path_next_to_the_program(settings.LOGS_DIRECTORY)
+
+
+def make_logs_directory():
+    """Create the log directory when it is not there yet."""
+    try:
+        os.makedirs(logs_directory(), exist_ok=True)
+    except OSError as error:
+        report_a_log_problem(f"the log directory {settings.LOGS_DIRECTORY} is not usable: {error}")
+        return False
+    return True
+
+
+def report_a_log_problem(message):
+    """Tell about a broken log once, so one failure does not flood the journal."""
+    global JOURNAL_PROBLEM_REPORTED
+    if JOURNAL_PROBLEM_REPORTED:
         return
-    stamp = time.strftime("%Y-%m-%d %H:%M:%S")
-    print(f"{stamp} {settings.PROGRAM_NAME}: {message}", flush=True)
+    JOURNAL_PROBLEM_REPORTED = True
+    tell(f"{message}, the program keeps running without that log")
+
+
+def dated_directory_for(moment):
+    """A directory named by a moment, counted up when that very moment repeats."""
+    base = os.path.join(logs_directory(), moment)
+    candidate = base
+    number = 2
+    while os.path.exists(candidate):
+        candidate = f"{base}-{number}"
+        number += 1
+    os.makedirs(candidate, exist_ok=True)
+    return candidate
+
+
+def move_into_a_dated_directory(path):
+    """Move one log file into a directory named by the moment that file was created."""
+    if not os.path.exists(path):
+        return ""
+    try:
+        created = os.path.getmtime(path)
+        moment = time.strftime(settings.ARCHIVE_MOMENT_FORMAT, time.localtime(created))
+        target = os.path.join(dated_directory_for(moment), os.path.basename(path))
+        os.replace(path, target)
+        return target
+    except OSError as error:
+        report_a_log_problem(f"the log file {os.path.basename(path)} could not be moved away: {error}")
+        return ""
+
+
+def name_of_the_directory_that_holds(target):
+    """The dated directory of a moved file, as a path a reader can follow."""
+    return f"{settings.LOGS_DIRECTORY}/{os.path.basename(os.path.dirname(target))}"
+
+
+def answer_file_name(access_key):
+    """The file of one account, named after its access key."""
+    return f"{access_key}{settings.ANSWER_FILE_SUFFIX}"
+
+
+def answer_file_path(access_key):
+    """Where the answers of one account of this pass live."""
+    return os.path.join(logs_directory(), answer_file_name(access_key))
+
+
+def start_a_fresh_answer_file(access_key):
+    """Move the answers of the previous pass of this account away."""
+    with LOGS_LOCK:
+        if not make_logs_directory():
+            return
+        moved = move_into_a_dated_directory(answer_file_path(access_key))
+        if moved:
+            tell(
+                f"the vendor answers of the previous pass moved to "
+                f"{name_of_the_directory_that_holds(moved)}/{os.path.basename(moved)}"
+            )
+
+
+def keep_vendor_answer(access_key, raw_answer):
+    """Write one vendor answer exactly as it arrived: nothing added, nothing changed."""
+    with LOGS_LOCK:
+        if not make_logs_directory():
+            return
+        try:
+            with open(answer_file_path(access_key), "a", encoding="utf-8") as handle:
+                handle.write(raw_answer if raw_answer.endswith("\n") else raw_answer + "\n")
+        except OSError as error:
+            report_a_log_problem(f"a vendor answer could not be written: {error}")
+
+
+def start_journal():
+    """Open the journal of this run, after moving the journal of the previous run away."""
+    global JOURNAL_FILE
+    moved = ""
+    with LOGS_LOCK:
+        if not make_logs_directory():
+            return
+        path = os.path.join(logs_directory(), settings.JOURNAL_FILE_NAME)
+        moved = move_into_a_dated_directory(path)
+        try:
+            JOURNAL_FILE = open(path, "a", encoding="utf-8")
+        except OSError as error:
+            JOURNAL_FILE = None
+            print(f"{settings.PROGRAM_NAME}: the journal file is not writable: {error}", flush=True)
+    if moved:
+        tell(
+            f"the journal of the previous run moved to "
+            f"{name_of_the_directory_that_holds(moved)}/{os.path.basename(moved)}"
+        )
+
+
+def write_journal_line(line):
+    """Keep one line in the journal of this run, when the journal is open."""
+    if JOURNAL_FILE is None:
+        return
+    with LOGS_LOCK:
+        try:
+            JOURNAL_FILE.write(line + "\n")
+            JOURNAL_FILE.flush()
+        except OSError as error:
+            report_a_log_problem(f"a journal line could not be written: {error}")
 
 
 def shorten(access_key):
@@ -93,7 +231,12 @@ def vendor_request(path, access_key, hardware_id, query=""):
     request.add_header("User-Agent", settings.VENDOR_USER_AGENT)
     request.add_header("Content-Type", "application/json")
     with urllib.request.urlopen(request, timeout=settings.VENDOR_TIME_OUT_SECONDS) as answer:
-        return json.loads(answer.read().decode("utf-8"))
+        raw_answer = answer.read().decode("utf-8")
+    # The answer is kept exactly as it arrived, before anything is taken out
+    # of it: the raw shape is what shows how the vendor rotates addresses
+    # and camouflage names from one pass to the next.
+    keep_vendor_answer(access_key, raw_answer)
+    return json.loads(raw_answer)
 
 
 def vendor_request_with_retries(path, access_key, hardware_id, query="", what=""):
@@ -235,6 +378,7 @@ class AccountSnapshot:
         return time.monotonic() - self.collected_at
 
     def collect_locked(self):
+        start_a_fresh_answer_file(self.access_key)
         try:
             nodes = collect_nodes(self.access_key, self.hardware_id)
         except Exception as error:  # noqa: BLE001 - a failed pass keeps the previous list
@@ -763,6 +907,7 @@ def start_https_server():
 
 
 def main():
+    start_journal()
     for signal_name in ("SIGINT", "SIGTERM"):
         if hasattr(signal, signal_name):
             signal.signal(getattr(signal, signal_name), note_the_stop_request)

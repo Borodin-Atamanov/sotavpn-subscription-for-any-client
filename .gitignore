@@ -2,8 +2,10 @@
 __pycache__/
 *.pyc
 
-# A snapshot of the last collected list, if you ever ask the program to keep one.
-bridge-snapshot.json
+# The raw vendor answers and the journal of the program. They carry the
+# addresses, the keys and the camouflage names of the account, so they never
+# belong in the repository.
+logs/
 
 # Local editors.
 *.swp

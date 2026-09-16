@@ -104,6 +104,29 @@ program never pings anything by itself. Use those two answers, or paste the
 node list into a client group of your own, and a dead server will not bother
 you.
 
+## The logs directory
+
+The program keeps two files next to itself, in the logs directory.
+
+logs/<access key>.jsonl holds the answers the vendor gave during the last
+pass, exactly as they arrived, one answer per line. One account keeps one
+file, so two accounts never mix. Nothing is taken out of the answers and
+nothing is added to them, so the file shows the raw shape of what the vendor
+sends.
+
+When a new pass collects a fresh list, the previous file moves into a
+directory named after the moment that file itself was created, in the shape
+2026-09-23-15-19-45. The journal works the same way: logs/log.log holds the
+run that is working now, and the next start moves the journal of the previous
+run into a dated directory first.
+
+One pass makes one directory, so the archive grows with every refresh. Look
+at what it holds and take away what you do not need.
+
+The logs directory is listed in .gitignore, and it belongs there: a raw
+vendor answer carries the addresses, the keys and the camouflage names of
+your account, so the directory is as private as your access key.
+
 ## HTTPS and the certificate
 
 The program serves plain HTTP on port 25080 and HTTPS on port 25443 at the
