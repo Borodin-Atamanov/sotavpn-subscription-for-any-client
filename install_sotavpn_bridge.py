@@ -272,17 +272,31 @@ def journal_lines_of_the_installation(locations):
         return []
 
 
-def wait_for_the_program_to_start(locations, seconds=None):
-    """Wait a moment for the installed program to say that its ports are open."""
+def the_run_is_fresh_and_its_ports_are_open(lines, lines_of_the_previous_run):
+    """Whether these journal lines belong to a new run that has opened its ports.
+
+    The journal of the previous run says that its ports were open as well, and
+    systemd answers a restart before the new program has put the old journal
+    aside, so the two have to be told apart: the lines must differ from the
+    ones read before the restart.
+    """
+    if not lines or lines == lines_of_the_previous_run:
+        return False
+    return any("is listening on" in line for line in lines)
+
+
+def wait_for_the_program_to_open_its_ports(locations, lines_of_the_previous_run, seconds=None):
+    """Wait a moment for the new run to say that its ports are open, and answer its lines."""
     if seconds is None:
         seconds = SECONDS_TO_WAIT_FOR_THE_PROGRAM
     waited = 0
     while waited < seconds:
-        if any("is listening on" in line for line in journal_lines_of_the_installation(locations)):
-            return True
+        lines = journal_lines_of_the_installation(locations)
+        if the_run_is_fresh_and_its_ports_are_open(lines, lines_of_the_previous_run):
+            return lines
         time.sleep(1)
         waited += 1
-    return False
+    return []
 
 
 def send_to_the_trash(path):
@@ -340,14 +354,20 @@ def install_the_program(source_directory, locations):
     say(f"the service file is {locations['unit_file']}")
     if make_the_command_link(locations):
         say(f"the command is {locations['command_link']}")
+    lines_of_the_previous_run = journal_lines_of_the_installation(locations)
     if locations["mode"] == USER_MODE:
         enable_linger()
     enable_the_service(locations)
-    if wait_for_the_program_to_start(locations):
+    lines = wait_for_the_program_to_open_its_ports(locations, lines_of_the_previous_run)
+    if lines:
         say("the program runs and says that its ports are open")
     else:
-        say("the program has not said yet that its ports are open, look at the journal in a few seconds")
-    for line in journal_lines_of_the_installation(locations):
+        lines = journal_lines_of_the_installation(locations)
+        if lines == lines_of_the_previous_run:
+            say("the journal still belongs to the previous run, so the new run has not written anything yet")
+        else:
+            say("the new run has not said yet that its ports are open, look at the journal in a few seconds")
+    for line in lines:
         print(line, flush=True)
     say_where_the_program_stands(locations)
     return 0

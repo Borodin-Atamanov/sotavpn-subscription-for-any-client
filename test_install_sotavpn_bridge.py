@@ -197,6 +197,17 @@ class InstallationCheck(unittest.TestCase):
         for name in os.listdir(directory):
             self.assertFalse(name.endswith(".service"), name)
 
+    def test_the_journal_of_the_previous_run_does_not_count_as_the_new_one(self):
+        old = ["2026-09-16 10:51:52 plain HTTP is listening on http://127.0.0.1:25080"]
+        fresh = ["2026-09-16 11:05:00 plain HTTP is listening on http://127.0.0.1:25080"]
+        self.assertFalse(installer.the_run_is_fresh_and_its_ports_are_open(old, old))
+        self.assertFalse(installer.the_run_is_fresh_and_its_ports_are_open(fresh, fresh))
+        self.assertFalse(installer.the_run_is_fresh_and_its_ports_are_open([], old))
+        self.assertTrue(installer.the_run_is_fresh_and_its_ports_are_open(fresh, old))
+        # The very first installation has no journal of a previous run at all,
+        # so whatever the file holds belongs to the new run.
+        self.assertTrue(installer.the_run_is_fresh_and_its_ports_are_open(fresh, []))
+
     def test_the_whole_journal_of_the_run_is_read_and_not_a_cut_of_it(self):
         installer.install_the_program(self.source, self.locations)
         os.makedirs(self.locations["log_directory"], exist_ok=True)
