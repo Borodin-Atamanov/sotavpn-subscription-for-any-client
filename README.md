@@ -41,22 +41,21 @@ your client, replacing the last part with your own access key:
 http://127.0.0.1:25080/sub/your-access-key
 ```
 
-The secure port serves the same list at https://127.0.0.1:25443/, and its
-certificate is self signed, so a client needs permission to accept it. The
-section about HTTPS below explains that switch.
+The secure port serves the same list as well, and its certificate is self
+signed, so a client needs permission to accept it. The section about HTTPS
+below explains that switch.
 
-The first request takes about fifteen seconds, because the program walks all
-locations of the service. Later requests are answered at once.
+The first request takes longer than the ones after it, because the program
+walks every location of the service; the journal says what it is doing while
+it walks.
 
 If you want to know whether it works before touching a client, open the root
-page of either port in a browser:
+page of that port in a browser. It lists every answer this program can give,
+with ready to use addresses:
 
 ```
 http://127.0.0.1:25080/
-https://127.0.0.1:25443/
 ```
-
-It lists every answer this program can give, with ready to use addresses.
 
 To stop the program, press Control and C in the same terminal. Running it by
 hand lasts until you close that terminal, and for anything longer there is the
@@ -138,12 +137,9 @@ https://127.0.0.1:25443/sub/<access key>/html
 https://127.0.0.1:25443/sub/<access key>/csv
 ```
 
-What each suffix means is written on the root page of either port, which lists
-these same addresses built out of the values of settings.py:
-
-```
-http://127.0.0.1:25080/
-```
+What each suffix means is written on the root page of either port: it lists
+these same addresses built out of the values of settings.py, so a port that
+was changed there stays right on that page.
 
 When you give no suffix, the program looks at the name your client calls
 itself. A Clash family client gets YAML, a sing-box family client gets JSON,
@@ -160,13 +156,9 @@ Hiddify: Add profile, Add from URL, paste the address.
 Clash Verge, Mihomo Party, ClashX: Profiles, Add profile from URL, paste the
 address.
 
-sing-box and Xray by hand: take the full answer of the one you use and save it
-as a configuration file:
-
-```
-https://127.0.0.1:25443/sub/<access key>/singbox-full
-http://127.0.0.1:25080/sub/<access key>/xray-full
-```
+sing-box and Xray by hand: take the full answer of the one you use, the
+address that ends with singbox-full or xray-full, and save it as a
+configuration file.
 
 3x-ui panel: Xray, outbound subscriptions, Create an outbound subscription,
 paste the address, enable private addresses, because the address points to
@@ -233,22 +225,17 @@ Turning HTTPS off is one line in settings.py.
 
 These families have their own syntax, and this program does not write it.
 The converter subconverter does, and it takes the raw list of this program as
-its source:
-
-```
-http://127.0.0.1:25500/sub?target=surge&url=<address of this bridge, URL encoded>
-```
-
-The root page of the bridge shows a ready to copy line like this.
+its source. The address of that converter is the value SUBCONVERTER_SUBSCRIBE_URL
+in settings.py, and the root page of the bridge shows the whole line ready to
+copy, with the address of this bridge in URL encoding.
 
 ## Where the values live
 
 Every value is in settings.py next to the program: the ports, the vendor
-address, the timeouts, the freshness of the list, the name prefix of the
-nodes, the names of the groups, and the address, interval and tolerance of the
-automatic test group. The program imports that file, and the import itself is
-execution, so there is nothing else to configure. There are no environment
-variables and no command line options.
+address, the timeouts, the freshness of the list, the names of the nodes and
+of the groups, and the test values of the automatic group. The program imports
+that file, and the import itself is execution, so there is nothing else to
+configure: no environment variables and no command line options.
 
 Nothing secret belongs in settings.py. Your access key travels in the address
 only, so the file can be published as it is.
