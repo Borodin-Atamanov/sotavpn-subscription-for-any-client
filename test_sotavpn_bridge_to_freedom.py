@@ -463,6 +463,15 @@ class SettingsCheck(unittest.TestCase):
         self.assertTrue(settings.VENDOR_BASE_PATH.startswith("/"))
         self.assertTrue(settings.NODE_NAME_PREFIX)
 
+    def test_every_file_of_the_logs_has_a_suffix_of_its_own(self):
+        suffixes = (
+            settings.ANSWER_FILE_SUFFIX,
+            settings.ERROR_FILE_SUFFIX,
+            settings.NAMES_FILE_SUFFIX,
+            settings.SERVERS_FILE_SUFFIX,
+        )
+        self.assertEqual(len(set(suffixes)), len(suffixes))
+
     def test_the_certificate_files_are_in_the_repository(self):
         for path in (settings.CERTIFICATE_FILE, settings.PRIVATE_KEY_FILE):
             self.assertTrue(os.path.isfile(bridge.path_next_to_the_program(path)), f"{path} is missing")
@@ -496,7 +505,11 @@ class LogArchiveCheck(unittest.TestCase):
         return os.path.join(self.directory, settings.JOURNAL_FILE_NAME)
 
     def moment_of(self, path):
-        return time.strftime(settings.ARCHIVE_MOMENT_FORMAT, time.localtime(os.path.getmtime(path)))
+        """The moment the file was born, which is what an archived copy carries."""
+        return time.strftime(
+            settings.ARCHIVE_MOMENT_FORMAT,
+            time.localtime(bridge.moment_of_the_birth_of_a_file(path)),
+        )
 
     def read(self, path):
         with open(path, encoding="utf-8") as handle:
@@ -653,6 +666,200 @@ class LogArchiveCheck(unittest.TestCase):
         self.assertIn("the program of the checks version", lines[0])
         self.assertIn("https://example.invalid/the-source-of-the-checks", lines[1])
         self.assertIn("the author of the checks", lines[2])
+
+
+class FileMomentCheck(unittest.TestCase):
+    """The moment of birth of a file is what an archived copy carries."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-file-moment-")
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.path = os.path.join(self.directory, "a file")
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("x\n")
+        self.asked = []
+
+    def answering_stat(self, output):
+        """A stand-in for the external tool that answers one line."""
+
+        def answering(command, **rest):
+            self.asked.append(command)
+            return mock.Mock(stdout=output)
+
+        return answering
+
+    def test_the_moment_of_birth_is_asked_from_the_tool_stat(self):
+        put_a_stand_in(self, bridge.subprocess, "run", self.answering_stat("1789566554\n"))
+        self.assertEqual(bridge.moment_of_the_birth_of_a_file(self.path), 1789566554.0)
+        self.assertEqual(self.asked[0][0], "stat")
+
+    def test_a_file_system_without_the_moment_of_birth_falls_back_to_the_last_write(self):
+        os.utime(self.path, (1789566554, 1789566554))
+        put_a_stand_in(self, bridge.subprocess, "run", self.answering_stat("0\n"))
+        self.assertEqual(bridge.moment_of_the_birth_of_a_file(self.path), 1789566554.0)
+
+    def test_a_stat_that_cannot_run_falls_back_to_the_last_write(self):
+        os.utime(self.path, (1789566554, 1789566554))
+
+        def refusing(command, **rest):
+            raise FileNotFoundError("stat is not here")
+
+        put_a_stand_in(self, bridge.subprocess, "run", refusing)
+        self.assertEqual(bridge.moment_of_the_birth_of_a_file(self.path), 1789566554.0)
+
+    def test_the_real_tool_answers_a_moment_for_a_file_that_exists(self):
+        self.assertGreater(bridge.moment_of_the_birth_of_a_file(self.path), 0)
+
+
+class UniqueListsCheck(unittest.TestCase):
+    """The unique servers and camouflage names of a run, one value per line."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-unique-")
+        self.key = "the-access-key-of-the-list-checks"
+        self.other_key = "the-access-key-of-the-other-lists"
+        put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
+        put_a_stand_in(self, bridge, "JOURNAL_FILE", None)
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.addCleanup(self.close_the_journal)
+        bridge.start_journal()
+        self.snapshot = bridge.AccountSnapshot(self.key, "device id")
+
+    def close_the_journal(self):
+        """Close the journal of this check, so the next check opens its own."""
+        if bridge.JOURNAL_FILE is not None:
+            bridge.JOURNAL_FILE.close()
+            bridge.JOURNAL_FILE = None
+
+    def servers_path(self, key=None):
+        return os.path.join(self.directory, bridge.servers_file_name(key or self.key))
+
+    def names_path(self, key=None):
+        return os.path.join(self.directory, bridge.names_file_name(key or self.key))
+
+    def read_lines(self, path):
+        with open(path, encoding="utf-8") as handle:
+            return handle.read().splitlines()
+
+    def journal_text(self):
+        with open(os.path.join(self.directory, settings.JOURNAL_FILE_NAME), encoding="utf-8") as handle:
+            return handle.read()
+
+    def moment_ns(self, path):
+        return os.stat(path).st_mtime_ns
+
+    def a_pass_of(self, nodes):
+        self.snapshot.remember_the_unique_servers_and_names(nodes)
+        self.snapshot.keep_the_unique_files_of_the_run()
+
+    def test_a_failed_collection_brings_no_files(self):
+        def broken(access_key, hardware_id):
+            raise RuntimeError("the vendor is unreachable")
+
+        put_a_stand_in(self, bridge, "collect_nodes", broken)
+        self.snapshot.collect_locked()
+        self.assertEqual(os.listdir(self.directory), [settings.JOURNAL_FILE_NAME])
+
+    def test_the_pair_is_born_by_the_first_answered_collection(self):
+        put_a_stand_in(self, bridge, "collect_nodes", lambda access_key, hardware_id: sample_nodes())
+        put_a_stand_in(self, bridge, "read_subscription_expiry", lambda access_key, hardware_id: 0)
+        self.snapshot.collect_locked()
+        self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
+        self.assertEqual(self.read_lines(self.names_path()), ["differencescope.com", "gridsnap.org"])
+
+    def test_one_value_per_line_with_no_repeats(self):
+        second_place = dict(sample_nodes()[0], name="Sota AR Argentina ar-bue-02")
+        self.a_pass_of(sample_nodes() + [second_place])
+        self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
+        self.assertEqual(self.read_lines(self.names_path()), ["differencescope.com", "gridsnap.org"])
+
+    def test_addresses_sort_as_numbers_and_names_sort_as_text(self):
+        self.a_pass_of(
+            [
+                dict(sample_nodes()[0], address="217.217.109.1", sni="zzz.example"),
+                dict(sample_nodes()[0], address="13.140.54.5", sni="aaa.example"),
+                dict(sample_nodes()[0], address="64.137.54.2", sni="mmm.example"),
+            ]
+        )
+        self.assertEqual(
+            self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2", "217.217.109.1"]
+        )
+        self.assertEqual(
+            self.read_lines(self.names_path()), ["aaa.example", "mmm.example", "zzz.example"]
+        )
+
+    def test_an_address_that_is_not_ipv4_goes_after_the_numbers(self):
+        self.a_pass_of(
+            [
+                dict(sample_nodes()[0], address="host.example"),
+                dict(sample_nodes()[0], address="13.140.54.5"),
+            ]
+        )
+        self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "host.example"])
+
+    def test_a_node_without_a_camouflage_name_adds_no_name(self):
+        self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], address="95.181.152.1", sni="")])
+        self.assertIn("95.181.152.1", self.read_lines(self.servers_path()))
+        self.assertEqual(self.read_lines(self.names_path()), ["differencescope.com", "gridsnap.org"])
+
+    def test_a_pass_that_adds_nothing_leaves_both_files_untouched(self):
+        self.a_pass_of(sample_nodes())
+        moments = (self.moment_ns(self.servers_path()), self.moment_ns(self.names_path()))
+        self.a_pass_of(sample_nodes())
+        self.assertEqual(
+            moments, (self.moment_ns(self.servers_path()), self.moment_ns(self.names_path()))
+        )
+
+    def test_a_pass_that_grows_the_servers_rewrites_only_that_file(self):
+        self.a_pass_of(sample_nodes())
+        names_moment = self.moment_ns(self.names_path())
+        self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], address="95.181.152.1")])
+        self.assertIn("95.181.152.1", self.read_lines(self.servers_path()))
+        self.assertEqual(names_moment, self.moment_ns(self.names_path()))
+
+    def test_a_pass_that_grows_the_names_rewrites_only_that_file(self):
+        self.a_pass_of(sample_nodes())
+        servers_moment = self.moment_ns(self.servers_path())
+        self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], sni="aaa.example")])
+        self.assertIn("aaa.example", self.read_lines(self.names_path()))
+        self.assertEqual(servers_moment, self.moment_ns(self.servers_path()))
+
+    def test_the_journal_names_the_pair_at_the_birth_and_is_quiet_on_a_rewrite(self):
+        self.a_pass_of(sample_nodes())
+        kept = self.journal_text()
+        self.assertIn(bridge.servers_file_name(self.key), kept)
+        self.assertIn(bridge.names_file_name(self.key), kept)
+        mentions = kept.count(bridge.servers_file_name(self.key))
+        self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], address="95.181.152.1")])
+        self.assertEqual(mentions, self.journal_text().count(bridge.servers_file_name(self.key)))
+
+    def test_an_older_pair_moves_aside_under_the_moment_of_its_birth(self):
+        for path in (self.servers_path(), self.names_path()):
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("an older run\n")
+        moments = {
+            path: time.strftime(
+                settings.ARCHIVE_MOMENT_FORMAT,
+                time.localtime(bridge.moment_of_the_birth_of_a_file(path)),
+            )
+            for path in (self.servers_path(), self.names_path())
+        }
+        self.a_pass_of(sample_nodes())
+        for path, moment in moments.items():
+            archived = os.path.join(self.directory, f"{moment}_{os.path.basename(path)}")
+            self.assertTrue(os.path.exists(archived), archived)
+            self.assertEqual(self.read_lines(archived), ["an older run"])
+        self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
+
+    def test_two_accounts_keep_their_lists_apart(self):
+        self.a_pass_of(sample_nodes())
+        other = bridge.AccountSnapshot(self.other_key, "device id")
+        other.remember_the_unique_servers_and_names(
+            [dict(sample_nodes()[0], address="95.181.152.1", sni="aaa.example")]
+        )
+        other.keep_the_unique_files_of_the_run()
+        self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
+        self.assertEqual(self.read_lines(self.servers_path(self.other_key)), ["95.181.152.1"])
 
 
 class VendorRefusalCheck(unittest.TestCase):

@@ -107,8 +107,28 @@ def name_of_the_archived_log(path, moment, number):
     return f"{moment}-{number}_{os.path.basename(path)}"
 
 
+def moment_of_the_birth_of_a_file(path):
+    """The moment of birth of a file, and the moment of the last write as a fallback.
+
+    Linux does not hand the moment of birth to Python, so the external tool
+    stat is asked. A file system that does not keep the moment of birth makes
+    stat answer 0, and then the moment of the last write is used, which is
+    what this program did everywhere before.
+    """
+    try:
+        answer = subprocess.run(
+            ["stat", "-c", "%W", path], capture_output=True, text=True, check=False
+        )
+        born = int(answer.stdout.strip() or "0")
+        if born > 0:
+            return float(born)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    return os.path.getmtime(path)
+
+
 def move_a_log_file_aside(path):
-    """Move one log file aside in the logs directory, the moment in front of its name.
+    """Move one log file aside in the logs directory, the moment of its birth in front of its name.
 
     The directory stays flat: an archived log is a file next to the current
     one, never a file inside a directory of its own.
@@ -116,7 +136,7 @@ def move_a_log_file_aside(path):
     if not os.path.exists(path):
         return ""
     try:
-        created = os.path.getmtime(path)
+        created = moment_of_the_birth_of_a_file(path)
         moment = time.strftime(settings.ARCHIVE_MOMENT_FORMAT, time.localtime(created))
         number = 1
         target = os.path.join(logs_directory(), name_of_the_archived_log(path, moment, number))
@@ -153,6 +173,46 @@ def error_file_name(access_key):
 def error_file_path(access_key):
     """Where the refusals of one account of this pass live."""
     return os.path.join(logs_directory(), error_file_name(access_key))
+
+
+def names_file_name(access_key):
+    """The file of one account that keeps the unique camouflage names of this run."""
+    return f"{access_key}{settings.NAMES_FILE_SUFFIX}"
+
+
+def names_file_path(access_key):
+    """Where the unique camouflage names of one account live."""
+    return os.path.join(logs_directory(), names_file_name(access_key))
+
+
+def servers_file_name(access_key):
+    """The file of one account that keeps the unique server addresses of this run."""
+    return f"{access_key}{settings.SERVERS_FILE_SUFFIX}"
+
+
+def servers_file_path(access_key):
+    """Where the unique server addresses of one account live."""
+    return os.path.join(logs_directory(), servers_file_name(access_key))
+
+
+def address_sort_key(address):
+    """An IPv4 address sorts as a number; anything else sorts as text after them."""
+    parts = address.split(".")
+    if len(parts) == 4 and all(part.isdigit() for part in parts):
+        return (0, tuple(int(part) for part in parts))
+    return (1, address)
+
+
+def write_the_list_file(path, values):
+    """One value per line, the whole list at once, over the file that is there.
+
+    The file is truncated in place and never replaced: a replacement would
+    give the file a new moment of birth, and the pair of the list files of a
+    run keeps the moment it was born with.
+    """
+    with open(path, "w", encoding="utf-8") as handle:
+        for value in values:
+            handle.write(value + "\n")
 
 
 def start_a_fresh_log_pass(access_key):
@@ -387,6 +447,11 @@ class AccountSnapshot:
         self.expiry = 0
         self.collected_at = 0.0
         self.complaint = ""
+        self.unique_servers = set()
+        self.unique_names = set()
+        self.servers_written = 0
+        self.names_written = 0
+        self.lists_started = False
         self.lock = threading.Lock()
 
     def age_seconds(self):
@@ -410,6 +475,54 @@ class AccountSnapshot:
         self.expiry = read_subscription_expiry(self.access_key, self.hardware_id)
         self.collected_at = time.monotonic()
         self.complaint = ""
+        self.remember_the_unique_servers_and_names(nodes)
+        self.keep_the_unique_files_of_the_run()
+
+    def remember_the_unique_servers_and_names(self, nodes):
+        """Keep the address and the camouflage name of every node in memory."""
+        for node in nodes:
+            if node["address"]:
+                self.unique_servers.add(node["address"])
+            if node["sni"]:
+                self.unique_names.add(node["sni"])
+
+    def keep_the_unique_files_of_the_run(self):
+        """Write the pair of list files: born now, and a later pass rewrites only what grew."""
+        with LOGS_LOCK:
+            if not make_logs_directory():
+                return
+            first_time = not self.lists_started
+            if first_time:
+                self.move_the_older_pair_aside()
+            if first_time or len(self.unique_servers) > self.servers_written:
+                try:
+                    write_the_list_file(
+                        servers_file_path(self.access_key),
+                        sorted(self.unique_servers, key=address_sort_key),
+                    )
+                    self.servers_written = len(self.unique_servers)
+                except OSError as error:
+                    report_a_log_problem(f"the file of unique servers could not be written: {error}")
+            if first_time or len(self.unique_names) > self.names_written:
+                try:
+                    write_the_list_file(names_file_path(self.access_key), sorted(self.unique_names))
+                    self.names_written = len(self.unique_names)
+                except OSError as error:
+                    report_a_log_problem(f"the file of unique names could not be written: {error}")
+            if first_time:
+                self.lists_started = True
+                tell(
+                    f"the unique servers and camouflage names of key {shorten(self.access_key)} are kept in "
+                    f"{path_as_the_reader_knows_it(servers_file_path(self.access_key))} and "
+                    f"{path_as_the_reader_knows_it(names_file_path(self.access_key))}"
+                )
+
+    def move_the_older_pair_aside(self):
+        """The pair of a previous run goes to the archive under the moment of its birth."""
+        for path in (servers_file_path(self.access_key), names_file_path(self.access_key)):
+            moved = move_a_log_file_aside(path)
+            if moved:
+                tell(f"the list of a previous run moved to {path_as_the_reader_knows_it(moved)}")
 
     def nodes_for_request(self):
         """Give the freshest list this request deserves, and its age."""

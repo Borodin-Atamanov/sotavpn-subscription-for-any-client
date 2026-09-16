@@ -142,7 +142,8 @@ XRAY_LOCAL_SOCKS_PORT = 10809
 # description, so there is one list of them and not two that must agree.
 SUBCONVERTER_SUBSCRIBE_URL = "http://127.0.0.1:25500/sub"
 
-# Where the program keeps the raw answers of the vendor and its own journal.
+# Where the program keeps the raw answers of the vendor, the unique lists of
+# a run and its own journal.
 # The directory sits next to the program, and in a service installation that
 # is the program directory, so the logs travel with the program and survive
 # an update. It is listed in .gitignore, because a raw vendor answer carries
@@ -168,6 +169,16 @@ ANSWER_FILE_SUFFIX = ".json"
 # stream of documents.
 ERROR_FILE_SUFFIX = "-errors.log"
 
+# The unique servers and camouflage names an account has seen so far in this
+# run, one value per line: one file keeps the addresses, the other keeps the
+# names, and both are named after the access key. The pair is born at the
+# moment the first request of that account is answered; the pair of a
+# previous run moves aside right then, under the moment of its own birth. A
+# later pass rewrites a file of the pair only when the number of its values
+# grew, and a file that did not change is not touched at all.
+NAMES_FILE_SUFFIX = "-names.log"
+SERVERS_FILE_SUFFIX = "-servers.log"
+
 # The journal of the current run: what the program did, in plain words, one
 # line per step. The next start moves the journal of the previous run aside
 # inside the same directory, the moment in front of its name, so one file
@@ -175,7 +186,12 @@ ERROR_FILE_SUFFIX = "-errors.log"
 JOURNAL_FILE_NAME = "log.log"
 
 # The moment an archived log carries in front of its own name: the moment
-# that file itself was created.
+# that file itself was created, never the moment of its last write, because
+# the two list files of one run are born together and an archive keeps the
+# moment they were born with. Linux does not hand the moment of birth to
+# Python, so the external tool stat is asked; a file system that does not
+# keep the moment of birth makes stat answer 0, and then the moment of the
+# last write is used instead.
 ARCHIVE_MOMENT_FORMAT = "%Y-%m-%d-%H-%M-%S"
 
 # The short name of an installation: it names the program directory, the

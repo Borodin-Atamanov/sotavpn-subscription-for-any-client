@@ -182,13 +182,14 @@ you.
 ## The logs directory
 
 The program writes logs: the answers the vendor gives, the bodies the vendor
-sends with a refusal, and the journal of its own run. They lie next to the
+sends with a refusal, the unique servers and camouflage names each account has
+seen so far in this run, and the journal of its own run. They lie next to the
 program, in the directory named by LOGS_DIRECTORY in settings.py.
 
-How those files are named, which suffix each one carries and how the files of a
-previous pass are put aside are values in settings.py as well, so this file does
-not describe them. The directory stays flat: one file per account and per pass,
-never a subdirectory.
+How those files are named, which suffix each one carries and how the files of
+an older run are put aside are values in settings.py as well, so this file does
+not describe them. The directory stays flat: every file belongs to one account
+or to the program itself, and there are no subdirectories.
 
 The directory is listed in .gitignore, and it belongs there: a raw vendor answer
 carries the addresses, the keys and the camouflage names of your account, so the
