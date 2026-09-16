@@ -132,11 +132,12 @@ class InstallationCheck(unittest.TestCase):
         self.assertIn(f"WantedBy={self.locations['wanted_by']}", text)
         self.assertNotIn(self.source, text)
 
-    def test_the_installation_turns_linger_on_and_enables_the_service(self):
+    def test_the_installation_turns_linger_on_and_makes_the_service_start_at_boot(self):
         installer.install_the_program(self.source, self.locations)
         unit = os.path.basename(self.locations["unit_file"])
         self.assertIn(["systemctl", "--user", "daemon-reload"], self.commands)
-        self.assertIn(["systemctl", "--user", "enable", "--now", unit], self.commands)
+        self.assertIn(["systemctl", "--user", "enable", unit], self.commands)
+        self.assertIn(["systemctl", "--user", "restart", unit], self.commands)
         self.assertTrue(any("enable-linger" in command for command in self.commands), self.commands)
 
     def test_a_second_installation_keeps_the_settings_of_the_previous_one_beside_the_new_ones(self):

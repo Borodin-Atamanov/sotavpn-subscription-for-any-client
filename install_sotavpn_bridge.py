@@ -233,12 +233,20 @@ def enable_linger():
 
 
 def enable_the_service(locations):
-    """Tell systemd about the service, then start it and make it start at boot."""
+    """Tell systemd about the service, make it start at boot, and start the fresh code.
+
+    The restart is what makes a second installation an update: the files on
+    disk are replaced first, and the running program would otherwise keep the
+    old code in memory until somebody restarted the service by hand.
+    """
     command = systemctl_of(locations)
     run_a_command(command + ["daemon-reload"])
-    code, out, err = run_a_command(command + ["enable", "--now", unit_name_of(locations)])
+    code, out, err = run_a_command(command + ["enable", unit_name_of(locations)])
     if code != 0:
         say(f"systemd did not enable the service: {err.strip() or out.strip()}")
+    code, out, err = run_a_command(command + ["restart", unit_name_of(locations)])
+    if code != 0:
+        say(f"systemd did not start the service: {err.strip() or out.strip()}")
     return code
 
 
