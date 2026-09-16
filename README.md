@@ -161,6 +161,37 @@ configure. There are no environment variables and no command line options.
 Nothing secret belongs in settings.py. Your access key travels in the address
 only, so the file can be published as it is.
 
+## Which device the vendor sees
+
+The vendor API wants a device identifier in the X-HwID header. The vendor
+application fills that header with the sha256 of the machine id of the
+machine it runs on, so the same hash belongs to the same device:
+
+```bash
+printf '%s' "$(cat /etc/machine-id)" | sha256sum
+```
+
+settings.py carries one such hash, taken from the machine where this program
+was written and checked against the vendor application there. Every copy of
+this program therefore introduces itself to the vendor as that one device,
+because a public repository cannot carry a personal hash of each reader.
+
+Two ways to be a device of your own. Take your hash with the command above
+and put it into the address of the subscription, which does not touch any
+file:
+
+```
+http://127.0.0.1:25080/sub/your-access-key?hwid=your-own-hash
+```
+
+Or put it into DEFAULT_HARDWARE_ID in settings.py and every request uses it.
+An empty DEFAULT_HARDWARE_ID makes the program invent a random identifier per
+access key, which the vendor API also accepts.
+
+The identifier is not a secret: a hash cannot be turned back into the machine
+id. It does identify the machine it came from, so do not publish your own
+hash unless you mean to.
+
 ## Autostart
 
 The program is a plain command, so any autostart method you already use will
@@ -193,9 +224,9 @@ plain port, or put a web server with a real certificate in front.
 python3 -m unittest test_sotavpn_bridge_to_freedom
 ```
 
-Nineteen checks: the answer formats, the automatic test groups, the choice of
-the answer by the client name, and the behaviour when the vendor stops
-answering.
+The checks cover the answer formats, the automatic test groups, the choice of
+the answer by the client name, the device identifier, the collection of the
+node list, and the behaviour when the vendor stops answering.
 
 ## Licence
 

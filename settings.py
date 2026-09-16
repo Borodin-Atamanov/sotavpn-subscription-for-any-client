@@ -46,10 +46,18 @@ VENDOR_ATTEMPTS = 3
 VENDOR_RETRY_PAUSE_SECONDS = 3.0
 VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0.2
 
-# The vendor identifies a device by this header. Their own client sends its
-# machine id here. Leave it empty and the bridge invents a random stable id
-# per access key, which is enough for the API to answer.
-DEFAULT_HARDWARE_ID = ""
+# The vendor identifies a device by this header. Their own client fills it with
+# the sha256 of the machine id of the machine it runs on, and this was checked
+# against that client on 2026-09-15:
+#   printf '%s' "$(cat /etc/machine-id)" | sha256sum
+# The value below is that hash for one machine, so a copy of this program
+# introduces itself to the vendor as the same device as the vendor client does
+# on that machine. Every copy sends this same value, because a public
+# repository cannot carry the hash of the machine of each reader. Take your own
+# hash with the command above, put it either here or into ?hwid= of the
+# subscription address, and your device is your own. An empty value makes the
+# bridge invent a random stable id per access key, which the API also accepts.
+DEFAULT_HARDWARE_ID = "bc595c0af2e559eb9b19aec5aaf597dd6546b6945df791990de5f3d098a4289e"
 
 # The user agent the vendor client sends. Kept as it is, because the vendor
 # sees the same kind of request as from their own application.

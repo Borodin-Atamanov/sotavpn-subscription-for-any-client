@@ -311,6 +311,13 @@ class DeviceIdCheck(unittest.TestCase):
         self.assertEqual(bridge.hardware_id_for(key, "inject\r\nX-Page: 1"), invented)
         self.assertNotIn("inject", invented)
 
+    def test_an_empty_ask_gives_the_settings_value_or_an_invented_one(self):
+        given = bridge.hardware_id_for("the key of the settings device id", "")
+        if settings.DEFAULT_HARDWARE_ID:
+            self.assertEqual(given, settings.DEFAULT_HARDWARE_ID)
+        else:
+            self.assertEqual(len(given), 64)
+
 
 class SettingsCheck(unittest.TestCase):
     def test_ports_are_usable_by_a_user(self):
@@ -325,6 +332,13 @@ class SettingsCheck(unittest.TestCase):
 
     def test_verbose_is_a_switch_of_one_and_zero(self):
         self.assertIn(settings.VERBOSE, (0, 1))
+
+    def test_the_device_id_of_the_settings_is_a_hash_or_empty(self):
+        value = settings.DEFAULT_HARDWARE_ID
+        self.assertTrue(
+            value == ""
+            or (len(value) == 64 and all(character in "0123456789abcdef" for character in value))
+        )
 
     def test_the_vendor_and_the_name_prefix_are_set(self):
         self.assertTrue(settings.VENDOR_HOST)
