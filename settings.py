@@ -7,7 +7,7 @@ program has nothing else to configure.
 
 # Name and version the program shows in its journal and in HTTP answers.
 PROGRAM_NAME = "sotavpn_bridge_to_freedom"
-PROGRAM_VERSION = "1.0.7"
+PROGRAM_VERSION = "1.0.9"
 
 # The program tells what it is doing after every step while VERBOSE is 1.
 # Set it to 0 only when the journal noise becomes a problem.
@@ -41,10 +41,10 @@ VENDOR_BASE_PATH = "/api/v1/public"
 # How long to wait for one vendor answer, how many times to retry a failed
 # call, how long to wait between retries, and how long to wait between two
 # calls in the same pass. The vendor does not like fast hammering.
-VENDOR_TIME_OUT_SECONDS = 20
-VENDOR_ATTEMPTS = 3
-VENDOR_RETRY_PAUSE_SECONDS = 3.0
-VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0.2
+VENDOR_TIME_OUT_SECONDS = 120
+VENDOR_ATTEMPTS = 5
+VENDOR_RETRY_PAUSE_SECONDS = 11
+VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0.1
 
 # The vendor identifies a device by this header. Their own client fills it with
 # the sha256 of the machine id of the machine it runs on, and this was checked
@@ -67,7 +67,7 @@ VENDOR_USER_AGENT = "Sota Connect (v1.7.7/windows)"
 # next client request collects a new one. The vendor hands out a working
 # server address together with its camouflage name, and that pair goes stale
 # within minutes, so keep this small.
-SNAPSHOT_FRESH_SECONDS = 120
+SNAPSHOT_FRESH_SECONDS = 15
 
 # Every node name starts with this word, then the country and the gateway
 # name follow. Names stay the same between refreshes, so clients do not grow
@@ -137,7 +137,7 @@ ANSWER_FILE_SUFFIX = ".json"
 # together with the answers of the same pass. Kept apart from the answers,
 # because a refusal is an answer in words, not in JSON, and mixing the two
 # would ruin the stream of documents.
-ERROR_FILE_SUFFIX = ".errors.txt"
+ERROR_FILE_SUFFIX = "-errors.log"
 
 # The journal of the current run. The next start moves the journal of the
 # previous run into a dated directory first, so one file always belongs to
