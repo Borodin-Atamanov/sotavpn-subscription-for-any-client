@@ -387,14 +387,22 @@ class LogArchiveCheck(unittest.TestCase):
     def test_the_first_pass_opens_the_file_of_its_own_account(self):
         bridge.start_a_fresh_answer_file(self.key)
         bridge.keep_vendor_answer(self.key, '{"locations": []}')
-        self.assertEqual(self.read(self.answer_path()), '{"locations": []}\n')
+        self.assertEqual(self.read(self.answer_path()), '{\n\t"locations": []\n}\n\n')
         self.assertEqual(os.listdir(self.directory), [bridge.answer_file_name(self.key)])
+
+    def test_the_answer_is_printed_with_tabs_and_readable_text(self):
+        bridge.start_a_fresh_answer_file(self.key)
+        bridge.keep_vendor_answer(self.key, '{"locations":[{"id":8,"name":"Лучший сервер"}]}')
+        text = self.read(self.answer_path())
+        self.assertIn('\n\t"locations": [\n\t\t{\n\t\t\t"id": 8,\n\t\t\t"name": "Лучший сервер"\n\t\t}\n\t]\n', text)
+        self.assertNotIn("\\u", text)
 
     def test_one_pass_keeps_every_answer_of_that_pass_in_one_file(self):
         bridge.start_a_fresh_answer_file(self.key)
         for answer in ('{"a": 1}', '[{"b": 2}]', '{"c": 3}'):
             bridge.keep_vendor_answer(self.key, answer)
-        self.assertEqual(self.read(self.answer_path()).splitlines(), ['{"a": 1}', '[{"b": 2}]', '{"c": 3}'])
+        blocks = [block for block in self.read(self.answer_path()).split("\n\n") if block.strip()]
+        self.assertEqual([json.loads(block) for block in blocks], [{"a": 1}, [{"b": 2}], {"c": 3}])
         self.assertEqual(len(os.listdir(self.directory)), 1)
 
     def test_two_accounts_keep_their_answers_apart(self):
@@ -402,8 +410,8 @@ class LogArchiveCheck(unittest.TestCase):
         bridge.start_a_fresh_answer_file(self.other_key)
         bridge.keep_vendor_answer(self.key, '{"account": "first"}')
         bridge.keep_vendor_answer(self.other_key, '{"account": "second"}')
-        self.assertEqual(self.read(self.answer_path()), '{"account": "first"}\n')
-        self.assertEqual(self.read(self.answer_path(self.other_key)), '{"account": "second"}\n')
+        self.assertEqual(json.loads(self.read(self.answer_path())), {"account": "first"})
+        self.assertEqual(json.loads(self.read(self.answer_path(self.other_key))), {"account": "second"})
         self.assertEqual(
             sorted(os.listdir(self.directory)),
             sorted([bridge.answer_file_name(self.key), bridge.answer_file_name(self.other_key)]),
@@ -415,9 +423,9 @@ class LogArchiveCheck(unittest.TestCase):
         moment = self.moment_of(self.answer_path())
         bridge.start_a_fresh_answer_file(self.key)
         bridge.keep_vendor_answer(self.key, '{"second": true}')
-        self.assertEqual(self.read(self.answer_path()), '{"second": true}\n')
+        self.assertEqual(json.loads(self.read(self.answer_path())), {"second": True})
         archived = os.path.join(self.directory, moment, bridge.answer_file_name(self.key))
-        self.assertEqual(self.read(archived), '{"first": true}\n')
+        self.assertEqual(json.loads(self.read(archived)), {"first": True})
 
     def test_a_pass_that_arrives_first_finds_nothing_to_move(self):
         bridge.start_a_fresh_answer_file(self.key)

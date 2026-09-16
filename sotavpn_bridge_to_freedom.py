@@ -23,13 +23,13 @@ How to run it
     python3 sotavpn_bridge_to_freedom.py
 
 What it keeps
-    Every answer the vendor gives is written to logs/<access key>.jsonl
-    exactly as it arrived, one account in one file, and the answers of the
-    previous pass move into a directory named after the moment that file was
-    created. The journal of the run goes to logs/log.log and moves the same
-    way on the next start. The logs directory is listed in .gitignore,
-    because a raw vendor answer carries the addresses and the keys of the
-    account.
+    Every answer the vendor gives is written to logs/<access key>.json as
+    readable JSON with tab indentation, one account in one file and an empty
+    line between two answers, and the answers of the previous pass move into
+    a directory named after the moment that file was created. The journal of
+    the run goes to logs/log.log and moves the same way on the next start.
+    The logs directory is listed in .gitignore, because a raw vendor answer
+    carries the addresses and the keys of the account.
 
 Where the values live
     Every value is in settings.py next to this file. That file is imported
@@ -170,14 +170,24 @@ def start_a_fresh_answer_file(access_key):
             )
 
 
+def pretty_answer(raw_answer):
+    """One vendor answer as readable JSON, with tabs as the indentation."""
+    try:
+        return json.dumps(json.loads(raw_answer), ensure_ascii=False, indent="\t")
+    except ValueError:
+        # An answer that is not JSON is kept as it came: a reader of the log
+        # is better served by the text than by nothing.
+        return raw_answer.strip()
+
+
 def keep_vendor_answer(access_key, raw_answer):
-    """Write one vendor answer exactly as it arrived: nothing added, nothing changed."""
+    """Write one vendor answer as readable JSON, an empty line after it."""
     with LOGS_LOCK:
         if not make_logs_directory():
             return
         try:
             with open(answer_file_path(access_key), "a", encoding="utf-8") as handle:
-                handle.write(raw_answer if raw_answer.endswith("\n") else raw_answer + "\n")
+                handle.write(pretty_answer(raw_answer) + "\n\n")
         except OSError as error:
             report_a_log_problem(f"a vendor answer could not be written: {error}")
 

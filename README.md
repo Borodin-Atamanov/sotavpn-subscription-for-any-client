@@ -108,11 +108,9 @@ you.
 
 The program keeps two files next to itself, in the logs directory.
 
-logs/<access key>.jsonl holds the answers the vendor gave during the last
-pass, exactly as they arrived, one answer per line. One account keeps one
-file, so two accounts never mix. Nothing is taken out of the answers and
-nothing is added to them, so the file shows the raw shape of what the vendor
-sends.
+logs/<access key>.json holds the answers the vendor gave during the last
+pass, as readable JSON printed with tabs, and an empty line separates two
+answers. One account keeps one file, so two accounts never mix.
 
 When a new pass collects a fresh list, the previous file moves into a
 directory named after the moment that file itself was created, in the shape

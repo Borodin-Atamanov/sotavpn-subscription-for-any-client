@@ -121,14 +121,15 @@ ANSWER_FORMATS = (
 # names of the account.
 LOGS_DIRECTORY = "logs"
 
-# The vendor answers of the last pass, exactly as they arrived, one answer
-# per line, in a file named after the access key of the account. A pass asks
-# the vendor thirty seven times: once for the location list, once per
-# location for its configuration, and once for the profile, so one pass
-# cannot live in one JSON document. The next pass moves that file into a
-# dated directory before it writes anything, so one file always holds one
-# pass of one account, and two accounts never mix.
-ANSWER_FILE_SUFFIX = ".jsonl"
+# The answers of the vendor during the last pass, in a file named after the
+# access key of the account. Every answer is kept as a JSON document of its
+# own, printed with tabs so a reader can follow the shape, and one empty line
+# separates two documents. A pass asks the vendor thirty seven times: once for
+# the location list, once per location for its configuration, and once for the
+# profile, so one pass cannot live in a single JSON document. The next pass
+# moves that file into a dated directory before it writes anything, so one
+# file always holds one pass of one account, and two accounts never mix.
+ANSWER_FILE_SUFFIX = ".json"
 
 # The journal of the current run. The next start moves the journal of the
 # previous run into a dated directory first, so one file always belongs to
