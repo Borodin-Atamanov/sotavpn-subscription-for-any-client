@@ -1,26 +1,32 @@
 # Sota subscription for any client
 
-This is a small program that turns your paid Sota Connect account into an
-ordinary subscription address. Every VPN client understands such an address:
-v2rayN, NekoBox, NekoRay, Hiddify, Karing, Streisand, Clash, Mihomo, Stash,
-sing-box, Xray and the 3x-ui panel.
+The mission: a paid Sota Connect subscription must work in any client, so the
+choice of client belongs to you and not to the vendor.
 
-You do not need the vendor application after this. You keep paying for the
-service and you use it with the client you like.
+The goal: a service on your machine that keeps handing out a fresh server list
+of your paid account, in the format the asking client understands, so your
+client always has a live server and the application of the vendor is never
+needed.
 
-The program is one Python file with no dependencies at all. It asks the
-vendor API for the server list of your account and hands that list out. It
-does not bring up a tunnel, it does not touch your routes or your DNS, and it
-does not check whether a server is alive, because your client does that
-better and for free.
+That service is this program. It turns a paid Sota Connect account into an
+ordinary subscription address, which every client understands: v2rayN,
+NekoBox, NekoRay, Hiddify, Karing, Streisand, Clash, Mihomo, Stash, sing-box,
+Xray and the 3x-ui panel. It is one Python file with no dependencies at all,
+and every value of it lives in settings.py beside the file.
 
-## What you need
+It asks the vendor API for the server list of your account and hands that list
+out. It does not bring up a tunnel, it does not touch your routes or your DNS,
+and it does not check whether a server is alive, because your client does that
+better and for free. You do not need the vendor application after this: you
+keep paying for the service and you use it with the client you like.
 
-1. Python 3.8 or newer. Nothing else, no packages to install.
-2. Your access key. It looks like `05a6c68e-8443-45fa-9f22-36fbcd2a9927` and
-   lives in your Sota account page or in the Sota Telegram bot.
+## Start it and get your subscription
 
-## Quick start
+Two things are needed: Python 3.8 or newer, nothing else to install, and your
+access key. The key looks like 05a6c68e-8443-45fa-9f22-36fbcd2a9927 and lives
+in your Sota account page or in the Sota Telegram bot.
+
+Run these three lines in a terminal, and the program is serving you:
 
 ```bash
 git clone --depth 1 https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client
@@ -28,19 +34,16 @@ cd sotavpn-subscription-for-any-client
 python3 sotavpn_bridge_to_freedom.py
 ```
 
-The program tells you what it is doing and then waits. The first line of the
-journal says which ports are open.
-
-Now put one of these addresses into your client, replacing the access key with
-yours. The program serves both at once, and the ports are values in settings.py:
+The program tells you what it is doing and then waits. Put this address into
+your client, replacing the last part with your own access key:
 
 ```
 http://127.0.0.1:25080/sub/your-access-key
-https://127.0.0.1:25443/sub/your-access-key
 ```
 
-The certificate of the secure port is self signed, so a client needs permission
-to accept it. The section about HTTPS below explains that switch.
+The secure port serves the same list at https://127.0.0.1:25443/, and its
+certificate is self signed, so a client needs permission to accept it. The
+section about HTTPS below explains that switch.
 
 The first request takes about fifteen seconds, because the program walks all
 locations of the service. Later requests are answered at once.
@@ -55,24 +58,91 @@ https://127.0.0.1:25443/
 
 It lists every answer this program can give, with ready to use addresses.
 
-To stop the program, press Control and C in the same terminal.
+To stop the program, press Control and C in the same terminal. Running it by
+hand lasts until you close that terminal, and for anything longer there is the
+next section.
 
-## Every answer this program gives
+## Make it a service, so it starts with the machine
 
-The address of the subscription carries the access key and, when you want
-something other than the default, a suffix. Both ports serve the same list, so
-use the one your client likes, plain or secure:
+The installer puts the program where the account that runs it keeps its
+programs, writes a systemd service for it and starts that service:
+
+```bash
+python3 install_sotavpn_bridge.py install
+```
+
+Root runs it, the program goes into the system directories and the service
+starts at boot before anybody logs in. An ordinary user runs it, the program
+goes into that home directory, the service lives in the user manager, and the
+installer turns linger on so it starts at boot without a login. The paths of
+both modes are the SYSTEM_INSTALL and USER_INSTALL sets of settings.py, so
+there is one place to change them. The program then works without a monitor
+and without anybody logged in, which is what a machine in a corner needs.
+
+Afterwards the command is on your path, and the state of the service and the
+journal of the current run are one command away:
+
+```bash
+python3 install_sotavpn_bridge.py status
+```
+
+Running install again is the way to update: the fresh program and the fresh
+settings replace the installed ones, the settings of the previous installation
+stay beside the new ones under a name that starts with their own moment, and
+the service is restarted, so the new code runs at once.
+
+To take the installation away again:
+
+```bash
+python3 install_sotavpn_bridge.py uninstall
+```
+
+Nothing is ever deleted. The trash takes what goes away, and where a machine
+has none, the files are renamed beside themselves. The settings of a system
+installation stay in place, and the program directory (with the logs inside
+it) goes to the trash, so even the logs are not lost.
+
+## Every answer this program gives, on both ports
+
+The address of an answer carries the access key and, when you want something
+other than the default, a suffix. Both ports serve the same list, so use the
+one your client likes. The addresses below are ready to copy: replace the part
+in angle brackets with your access key. The numbers in them are the default
+ports of settings.py, and the root page always shows the current ones.
+
+Plain HTTP:
 
 ```
-http://127.0.0.1:25080/sub/<access key>               base64, the default of most clients
-https://127.0.0.1:25443/sub/<access key>/raw          the same list as open vless links
-http://127.0.0.1:25080/sub/<access key>/clash         YAML for Clash, Mihomo and Stash
-https://127.0.0.1:25443/sub/<access key>/singbox      JSON outbounds for sing-box and Hiddify
-http://127.0.0.1:25080/sub/<access key>/singbox-full  a complete sing-box configuration
-https://127.0.0.1:25443/sub/<access key>/xray         JSON outbounds for Xray and the 3x-ui panel
-http://127.0.0.1:25080/sub/<access key>/xray-full     a complete Xray configuration with local socks
-https://127.0.0.1:25443/sub/<access key>/html         a page for a human being
-http://127.0.0.1:25080/sub/<access key>/csv           a table for manual entry
+http://127.0.0.1:25080/sub/<access key>
+http://127.0.0.1:25080/sub/<access key>/raw
+http://127.0.0.1:25080/sub/<access key>/clash
+http://127.0.0.1:25080/sub/<access key>/singbox
+http://127.0.0.1:25080/sub/<access key>/singbox-full
+http://127.0.0.1:25080/sub/<access key>/xray
+http://127.0.0.1:25080/sub/<access key>/xray-full
+http://127.0.0.1:25080/sub/<access key>/html
+http://127.0.0.1:25080/sub/<access key>/csv
+```
+
+Secure HTTPS:
+
+```
+https://127.0.0.1:25443/sub/<access key>
+https://127.0.0.1:25443/sub/<access key>/raw
+https://127.0.0.1:25443/sub/<access key>/clash
+https://127.0.0.1:25443/sub/<access key>/singbox
+https://127.0.0.1:25443/sub/<access key>/singbox-full
+https://127.0.0.1:25443/sub/<access key>/xray
+https://127.0.0.1:25443/sub/<access key>/xray-full
+https://127.0.0.1:25443/sub/<access key>/html
+https://127.0.0.1:25443/sub/<access key>/csv
+```
+
+What each suffix means is written on the root page of either port, which lists
+these same addresses built out of the values of settings.py:
+
+```
+http://127.0.0.1:25080/
 ```
 
 When you give no suffix, the program looks at the name your client calls
@@ -140,20 +210,11 @@ is never sent to the plain one. The ports themselves are values in settings.py,
 and the first lines of the journal print the addresses the program opened.
 
 The certificate in the certs directory is self signed, and its private key is
-in this public repository. That means two things. Your traffic cannot be read
-by somebody who merely listens to the network, which is the point. But
-anybody who can stand between you and this program can pretend to be this
-program, because the key is public. That is why the text below matters.
-
-Regenerate the certificate for yourself, it takes one command:
-
-```bash
-openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
-  -keyout certs/bridge-self-signed-private-key.pem \
-  -out certs/bridge-self-signed-certificate.pem \
-  -subj "/CN=sotavpn-bridge-local" \
-  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
-```
+in this public repository, so anybody who can stand between you and this
+program can pretend to be this program. Somebody who merely listens to the
+network cannot read your traffic, and that is what such a certificate is good
+for. certs/README.md says all of it, with the one command that makes both
+files yours; this file does not repeat that text.
 
 Because the certificate is self signed, the client must be told to accept it.
 Most clients have such a switch: in v2rayN it is the option to allow an
@@ -184,51 +245,13 @@ The root page of the bridge shows a ready to copy line like this.
 
 Every value is in settings.py next to the program: the ports, the vendor
 address, the timeouts, the freshness of the list, the name prefix of the
-nodes, the test addresses of the automatic groups. The program imports that
-file, and the import itself is execution, so there is nothing else to
-configure. There are no environment variables and no command line options.
+nodes, the names of the groups, and the address, interval and tolerance of the
+automatic test group. The program imports that file, and the import itself is
+execution, so there is nothing else to configure. There are no environment
+variables and no command line options.
 
 Nothing secret belongs in settings.py. Your access key travels in the address
 only, so the file can be published as it is.
-
-## Run it as a service
-
-The installer puts the program where the account that runs it keeps its
-programs, writes a systemd service for it and starts that service:
-
-```bash
-python3 install_sotavpn_bridge.py install
-```
-
-Root runs it, the program goes into the system directories and the service
-starts at boot before anybody logs in. An ordinary user runs it, the program
-goes into that home directory, the service lives in the user manager, and the
-installer turns linger on so it starts at boot without a login. The paths of
-both modes are the SYSTEM_INSTALL and USER_INSTALL sets of settings.py, so
-there is one place to change them.
-
-Afterwards the command is on your path, and the state of the service and the
-journal of the current run are one command away:
-
-```bash
-python3 install_sotavpn_bridge.py status
-```
-
-To take the installation away again:
-
-```bash
-python3 install_sotavpn_bridge.py uninstall
-```
-
-Running install again is the way to update: the fresh program and the fresh
-settings replace the installed ones, the settings of the previous installation
-stay beside the new ones under a name that starts with their own moment, and
-the service is restarted.
-
-Nothing is ever deleted. The trash takes what goes away, and where a machine
-has none, the files are renamed beside themselves. The settings of a system
-installation stay in place, and the program directory (with the logs inside
-it) goes to the trash, so even the logs are not lost.
 
 ## If something does not work
 
@@ -246,11 +269,11 @@ treated on its own, so when one of them cannot be taken, the program keeps
 serving on the other. When the holder is another copy of this program, the
 program asks that copy to stop and then kills it, so the copy you started last
 wins, and in a fight with the service the service wins in the end, because
-systemd starts it again every half a minute until the port is free. A process
-of any other program is never touched: the journal names it, and the way out is
-to change HTTP_PORT or HTTPS_PORT in settings.py. On Windows, Hyper-V and WSL
-sometimes reserve a range of high ports in advance, and then another number
-helps.
+systemd starts it again after the pause of SERVICE_RESTART_PAUSE_SECONDS in
+settings.py, round after round, until the port is free. A process of any other
+program is never touched: the journal names it, and the way out is to change
+HTTP_PORT or HTTPS_PORT in settings.py. On Windows, Hyper-V and WSL sometimes
+reserve a range of high ports in advance, and then another number helps.
 
 Nothing helps with a client that refuses a self signed certificate: use the
 plain port, or put a web server with a real certificate in front.
