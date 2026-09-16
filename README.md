@@ -191,12 +191,44 @@ configure. There are no environment variables and no command line options.
 Nothing secret belongs in settings.py. Your access key travels in the address
 only, so the file can be published as it is.
 
-## Autostart
+## Run it as a service
 
-The program is a plain command, so any autostart method you already use will
-do. One line in a systemd user unit, a launcher in the desktop autostart
-directory, a scheduled task in Windows, or a line in a container command, all
-of them work the same way: run `python3 sotavpn_bridge_to_freedom.py`.
+The installer puts the program where the account that runs it keeps its
+programs, writes a systemd service for it and starts that service:
+
+```bash
+python3 install_sotavpn_bridge.py install
+```
+
+Root runs it, the program goes into the system directories and the service
+starts at boot before anybody logs in. An ordinary user runs it, the program
+goes into that home directory, the service lives in the user manager, and the
+installer turns linger on so it starts at boot without a login. The paths of
+both modes are the SYSTEM_INSTALL and USER_INSTALL sets of settings.py, so
+there is one place to change them.
+
+Afterwards the command is on your path, and the state of the service and the
+last lines of its journal are one command away:
+
+```bash
+python3 install_sotavpn_bridge.py status
+```
+
+To take the installation away again:
+
+```bash
+python3 install_sotavpn_bridge.py uninstall
+```
+
+Running install again is the way to update: the fresh program and the fresh
+settings replace the installed ones, the settings of the previous installation
+stay beside the new ones under a name that starts with their own moment, and
+the service is restarted.
+
+Nothing is ever deleted. The trash takes what goes away, and where a machine
+has none, the files are renamed beside themselves. The settings of a system
+installation stay in place, and the program directory (with the logs inside
+it) goes to the trash, so even the logs are not lost.
 
 ## If something does not work
 
@@ -220,9 +252,11 @@ plain port, or put a web server with a real certificate in front.
 ## Checks
 
 ```bash
-python3 -m unittest test_sotavpn_bridge_to_freedom
+python3 -m unittest discover
 ```
 
 The checks cover the answer formats, the automatic test groups, the choice of
 the answer by the client name, the device identifier, the collection of the
-node list, and the behaviour when the vendor stops answering.
+node list, and the behaviour when the vendor stops answering. The installer
+has checks of its own: they build a root of their own and record every command
+they would have run, so a check never touches the machine it runs on.

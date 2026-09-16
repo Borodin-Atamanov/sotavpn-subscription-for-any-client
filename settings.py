@@ -159,3 +159,35 @@ JOURNAL_FILE_NAME = "log.log"
 # that file itself was created, in the same shape Pyntara uses for its
 # timestamps.
 ARCHIVE_MOMENT_FORMAT = "%Y-%m-%d-%H-%M-%S"
+
+# Where the installer puts the program and what it asks systemd to do. The
+# set is chosen by the account that runs the installer: root installs the
+# system set, an ordinary user installs the user set. Every path of an
+# installation comes from here, so the installer holds none of its own. A
+# leading ~ means the home directory of that account, and %t is the runtime
+# directory of the user (in the service file: the temporary directory).
+# The log directory is not part of this set on purpose: the settings file
+# goes to the target as it is, so the logs lie next to the program, exactly
+# as LOGS_DIRECTORY above says.
+SYSTEM_INSTALL = {
+    "code_directory": "/opt/sotavpn-bridge",
+    "settings_directory": "/etc/opt/sotavpn-bridge",
+    "unit_file": "/etc/systemd/system/sotavpn-bridge.service",
+    "command_link": "/usr/local/bin/sotavpn-bridge",
+    "wanted_by": "multi-user.target",
+    "temporary_directory": "/tmp",
+}
+
+USER_INSTALL = {
+    "code_directory": "~/.local/share/sotavpn-bridge",
+    "settings_directory": "~/.local/share/sotavpn-bridge",
+    "unit_file": "~/.config/systemd/user/sotavpn-bridge.service",
+    "command_link": "~/.local/bin/sotavpn-bridge",
+    "wanted_by": "default.target",
+    "temporary_directory": "%t",
+}
+
+# How long systemd waits before it starts the program again after a failure.
+# The only failure the program knows is a port somebody else holds, and that
+# is a lasting condition, so the pause is generous.
+SERVICE_RESTART_PAUSE_SECONDS = 15
