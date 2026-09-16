@@ -13,6 +13,7 @@ import io
 import json
 import os
 import shutil
+import signal
 import ssl
 import tempfile
 import threading
@@ -648,6 +649,130 @@ class VendorRefusalCheck(unittest.TestCase):
         kept = self.kept_refusals()
         self.assertIn("the vendor refused with code 404", kept)
         self.assertIn('\t"detail": "Invalid access key"', kept)
+
+
+class BusyPortCheck(unittest.TestCase):
+    """A busy port is taken from another copy of this program, and from nobody else."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-busy-port-")
+        self.kept_directory = settings.LOGS_DIRECTORY
+        self.kept_journal = bridge.JOURNAL_FILE
+        self.kept_holders = bridge.pids_holding_the_port
+        self.kept_asking = bridge.is_another_copy_of_this_program
+        self.kept_signal = bridge.send_a_signal_to
+        self.kept_listening = bridge.listen_or_nothing
+        self.kept_arguments = bridge.arguments_of
+        self.kept_soft_wait = settings.BUSY_PORT_SOFT_WAIT_SECONDS
+        self.kept_hard_wait = settings.BUSY_PORT_HARD_WAIT_SECONDS
+        settings.LOGS_DIRECTORY = self.directory
+        settings.BUSY_PORT_SOFT_WAIT_SECONDS = 0
+        settings.BUSY_PORT_HARD_WAIT_SECONDS = 0
+        bridge.JOURNAL_FILE = None
+        self.signals = []
+        self.tries = []
+        self.the_server = object()
+        bridge.send_a_signal_to = self.remember_the_signal
+        bridge.start_journal()
+
+    def tearDown(self):
+        if bridge.JOURNAL_FILE is not None:
+            bridge.JOURNAL_FILE.close()
+        bridge.JOURNAL_FILE = self.kept_journal
+        bridge.pids_holding_the_port = self.kept_holders
+        bridge.is_another_copy_of_this_program = self.kept_asking
+        bridge.send_a_signal_to = self.kept_signal
+        bridge.listen_or_nothing = self.kept_listening
+        bridge.arguments_of = self.kept_arguments
+        settings.BUSY_PORT_SOFT_WAIT_SECONDS = self.kept_soft_wait
+        settings.BUSY_PORT_HARD_WAIT_SECONDS = self.kept_hard_wait
+        settings.LOGS_DIRECTORY = self.kept_directory
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def remember_the_signal(self, pid, signal_number):
+        """Record one signal instead of sending it."""
+        self.signals.append((pid, signal_number))
+        return True
+
+    def the_port_is_held_by(self, pid, by_a_copy_of_this_program):
+        """Make the world look as if one process holds the port."""
+        bridge.pids_holding_the_port = lambda port: [pid]
+        bridge.is_another_copy_of_this_program = lambda other: by_a_copy_of_this_program
+
+    def listening_answers_a_server_after(self, how_many_tries):
+        """A listening call that answers nothing until the given number of tries has passed."""
+
+        def listening(_port):
+            self.tries.append(1)
+            return self.the_server if len(self.tries) >= how_many_tries else None
+
+        return listening
+
+    def read_the_journal(self):
+        with open(os.path.join(self.directory, settings.JOURNAL_FILE_NAME), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_the_port_is_taken_from_another_copy_of_this_program(self):
+        self.the_port_is_held_by(4242, True)
+        bridge.listen_or_nothing = self.listening_answers_a_server_after(2)
+        server = bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT")
+        self.assertIs(server, self.the_server)
+        self.assertEqual(self.signals, [(4242, signal.SIGTERM)])
+        self.assertIn("asking it to stop", self.read_the_journal())
+        self.assertIn("was free after the soft signal", self.read_the_journal())
+
+    def test_a_copy_that_does_not_stop_gets_the_hard_signal(self):
+        self.the_port_is_held_by(4242, True)
+        bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+        self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
+        self.assertEqual(self.signals, [(4242, signal.SIGTERM), (4242, signal.SIGKILL)])
+        self.assertIn("this port is given up", self.read_the_journal())
+
+    def test_a_stranger_holds_the_port_and_is_left_alone(self):
+        self.the_port_is_held_by(1, False)
+        bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+        self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
+        self.assertEqual(self.signals, [])
+        self.assertIn("is held by another program", self.read_the_journal())
+
+    def test_taking_the_port_can_be_switched_off(self):
+        kept = settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY
+        settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = 0
+        try:
+            self.the_port_is_held_by(4242, True)
+            bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+            self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
+        finally:
+            settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = kept
+        self.assertEqual(self.signals, [])
+        self.assertIn("switched off", self.read_the_journal())
+
+    def test_a_free_port_is_opened_without_any_signal(self):
+        bridge.listen_or_nothing = self.kept_listening
+        bridge.pids_holding_the_port = lambda port: []
+        server = bridge.open_a_listening_server(0, "HTTP_PORT")
+        self.assertIsNotNone(server)
+        server.server_close()
+        self.assertEqual(self.signals, [])
+
+    def test_the_name_of_the_file_decides_who_is_a_copy(self):
+        name = bridge.PROGRAM_FILE_NAME
+        for arguments, expected in (
+            (["python3", name], True),
+            (["python3", os.path.join("/opt/sotavpn-bridge", name)], True),
+            (["python3", "some-other-program.py"], False),
+            (["python3"], False),
+            ([], False),
+        ):
+            bridge.arguments_of = lambda pid, arguments=arguments: arguments
+            self.assertEqual(bridge.is_another_copy_of_this_program(4242), expected, arguments)
+
+    def test_the_waits_come_from_the_settings(self):
+        settings.BUSY_PORT_SOFT_WAIT_SECONDS = 0.2
+        self.the_port_is_held_by(4242, True)
+        bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+        self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
+        self.assertGreaterEqual(len(self.tries), 4)
 
 
 class ReadmeCheck(unittest.TestCase):

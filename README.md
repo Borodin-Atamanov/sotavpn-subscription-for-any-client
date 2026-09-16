@@ -241,10 +241,16 @@ The vendor did not answer: the machine has no way to reach the vendor, or the
 vendor is down. The bridge keeps serving the previous list, so your client
 keeps working, and the journal says how old that list is.
 
-The plain port or the HTTPS port is not free: another program on this machine
-already holds it. Change HTTP_PORT or HTTPS_PORT in settings.py. On Windows,
-Hyper-V and WSL sometimes reserve a range of high ports in advance, and then
-another number helps.
+The plain port or the HTTPS port is not free: somebody holds it. Each port is
+treated on its own, so when one of them cannot be taken, the program keeps
+serving on the other. When the holder is another copy of this program, the
+program asks that copy to stop and then kills it, so the copy you started last
+wins, and in a fight with the service the service wins in the end, because
+systemd starts it again every half a minute until the port is free. A process
+of any other program is never touched: the journal names it, and the way out is
+to change HTTP_PORT or HTTPS_PORT in settings.py. On Windows, Hyper-V and WSL
+sometimes reserve a range of high ports in advance, and then another number
+helps.
 
 Nothing helps with a client that refuses a self signed certificate: use the
 plain port, or put a web server with a real certificate in front.

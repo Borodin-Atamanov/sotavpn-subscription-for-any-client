@@ -58,8 +58,10 @@ import io
 import json
 import os
 import secrets
+import shutil
 import signal
 import ssl
+import subprocess
 import sys
 import threading
 import time
@@ -71,6 +73,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import settings
 
 PROGRAM_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+PROGRAM_FILE_NAME = os.path.basename(__file__)
 STOP_REQUESTED = threading.Event()
 
 
@@ -908,13 +911,148 @@ def explain_busy_port(port, value_name):
     tell(f"stop the holder, or take another number in settings.py: {value_name}")
 
 
+def arguments_of(pid):
+    """The arguments one process was started with, read from the kernel."""
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            raw = handle.read()
+    except OSError:
+        return []
+    return [part.decode("utf-8", "replace") for part in raw.split(b"\0") if part]
+
+
+def working_directory_of(pid):
+    """The directory one process works in, read from the kernel."""
+    try:
+        return os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return ""
+
+
+def is_another_copy_of_this_program(pid):
+    """Whether one process runs this very program, judged by the name of its file.
+
+    The name is compared as a pattern: the full path and the other arguments do
+    not matter, so the copy started by hand and the copy started by the service
+    recognize each other.
+    """
+    for argument in arguments_of(pid):
+        if os.path.basename(argument) == PROGRAM_FILE_NAME:
+            return True
+    return False
+
+
+def describe_a_process(pid):
+    """One process as a line a reader can follow: its number, its arguments, its directory."""
+    return f"{pid} ({' '.join(arguments_of(pid))}) in {working_directory_of(pid)}"
+
+
+def pids_holding_the_port(port):
+    """The processes that hold one port, asked of fuser."""
+    fuser = shutil.which("fuser")
+    if fuser is None:
+        tell("fuser is not installed, so the holder of a busy port cannot be found")
+        return []
+    try:
+        finished = subprocess.run(
+            [fuser, "-n", "tcp", str(port)], capture_output=True, text=True, check=False
+        )
+    except OSError as error:
+        tell(f"the holder of the port {port} could not be looked up: {error}")
+        return []
+    return [int(word) for word in finished.stdout.split() if word.isdigit()]
+
+
+def send_a_signal_to(pid, signal_number):
+    """Send one signal to one process and answer whether it worked."""
+    try:
+        os.kill(pid, signal_number)
+        return True
+    except OSError as error:
+        tell(f"the signal {signal_number} for the process {pid} did not go through: {error}")
+        return False
+
+
+def ask_the_copies_holding_the_port_to_stop(port):
+    """Signal the copies of this program that hold one port and answer their numbers.
+
+    A process of any other program is never signalled: it is named in the
+    journal and left exactly as it is.
+    """
+    ours = []
+    for pid in pids_holding_the_port(port):
+        if is_another_copy_of_this_program(pid):
+            ours.append(pid)
+        else:
+            tell(f"the port {port} is held by another program, {describe_a_process(pid)}, it is left alone")
+    for pid in ours:
+        tell(f"the port {port} is held by another copy of this program, {describe_a_process(pid)}, asking it to stop")
+        send_a_signal_to(pid, signal.SIGTERM)
+    return ours
+
+
+def listen_or_nothing(port):
+    """Try to listen on one port, and answer nothing when somebody holds it."""
+    try:
+        return HTTPServer((settings.LISTEN_ADDRESS, port), BridgeAnswerHandler)
+    except OSError:
+        return None
+
+
+def listen_again_within(port, seconds):
+    """Try to listen on one port until the wait runs out, and answer the server or nothing.
+
+    One attempt is always made, even when the wait is zero: a wait that is
+    switched off for a check must not switch off the attempt itself.
+    """
+    moment = time.time()
+    while True:
+        server = listen_or_nothing(port)
+        if server is not None:
+            return server
+        if time.time() - moment > seconds:
+            return None
+        time.sleep(0.1)
+
+
+def open_a_listening_server(port, value_name):
+    """Listen on one port, taking it from another copy of this program when needed.
+
+    Each port is opened on its own, so a port that cannot be taken does not
+    stop the other one: the program keeps serving on whatever it managed to
+    take.
+    """
+    server = listen_or_nothing(port)
+    if server is not None:
+        return server
+    if not settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY:
+        tell(f"the port {port} is not free, and taking it from another copy is switched off in settings.py")
+        explain_busy_port(port, value_name)
+        return None
+    our_copies = ask_the_copies_holding_the_port_to_stop(port)
+    if not our_copies:
+        explain_busy_port(port, value_name)
+        return None
+    server = listen_again_within(port, settings.BUSY_PORT_SOFT_WAIT_SECONDS)
+    if server is not None:
+        tell(f"the port {port} was free after the soft signal, the port is taken")
+        return server
+    for pid in our_copies:
+        tell(f"the copy {pid} did not stop, the hard signal goes to it")
+        send_a_signal_to(pid, signal.SIGKILL)
+    server = listen_again_within(port, settings.BUSY_PORT_HARD_WAIT_SECONDS)
+    if server is not None:
+        tell(f"the port {port} was free after the hard signal, the port is taken")
+        return server
+    tell(f"the port {port} stays busy after both signals, this port is given up")
+    explain_busy_port(port, value_name)
+    return None
+
+
 def start_plain_server():
     """Serve plain HTTP, which works with every client."""
-    try:
-        server = HTTPServer((settings.LISTEN_ADDRESS, settings.HTTP_PORT), BridgeAnswerHandler)
-    except OSError as error:
-        tell(f"the plain port {settings.HTTP_PORT} is not free: {error}")
-        explain_busy_port(settings.HTTP_PORT, "HTTP_PORT")
+    server = open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT")
+    if server is None:
         return None
     tell(f"plain HTTP is listening on http://{settings.LISTEN_ADDRESS}:{settings.HTTP_PORT}")
     return server
@@ -933,20 +1071,19 @@ def start_https_server():
             tell(f"the certificate file {path} is not readable: {error}")
             tell("HTTPS is skipped, the plain port still works, regenerate the certificate with the command from the README")
             return None
+    server = open_a_listening_server(settings.HTTPS_PORT, "HTTPS_PORT")
+    if server is None:
+        return None
     try:
-        server = HTTPServer((settings.LISTEN_ADDRESS, settings.HTTPS_PORT), BridgeAnswerHandler)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(
             path_next_to_the_program(settings.CERTIFICATE_FILE),
             path_next_to_the_program(settings.PRIVATE_KEY_FILE),
         )
         server.socket = context.wrap_socket(server.socket, server_side=True)
-    except OSError as error:
-        tell(f"the HTTPS port {settings.HTTPS_PORT} is not usable: {error}")
-        explain_busy_port(settings.HTTPS_PORT, "HTTPS_PORT")
-        return None
-    except ssl.SSLError as error:
+    except (OSError, ssl.SSLError) as error:
         tell(f"the certificate is not usable: {error}")
+        server.server_close()
         return None
     tell(f"HTTPS is listening on https://{settings.LISTEN_ADDRESS}:{settings.HTTPS_PORT}")
     tell("the certificate is self signed, so a client needs permission to accept it")

@@ -188,6 +188,18 @@ USER_INSTALL = {
 }
 
 # How long systemd waits before it starts the program again after a failure.
-# The only failure the program knows is a port somebody else holds, and that
-# is a lasting condition, so the pause is generous.
-SERVICE_RESTART_PAUSE_SECONDS = 15
+# The only failure the program knows is a port somebody else holds, and a copy
+# of this program that holds it is asked to step aside and then killed, so the
+# restart of the service is the moment the fight is decided: the service keeps
+# coming back every half a minute and the copy that was started by hand goes
+# after one such round.
+SERVICE_RESTART_PAUSE_SECONDS = 30
+
+# What to do when a port is already held. The program asks the holder to stop
+# and takes the port, but only when the holder is another copy of this very
+# program: a process of any other program is named in the journal and left
+# alone. The first wait follows the soft signal, the second one follows the
+# hard signal, and both are counted in seconds.
+TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = 1
+BUSY_PORT_SOFT_WAIT_SECONDS = 5
+BUSY_PORT_HARD_WAIT_SECONDS = 3
