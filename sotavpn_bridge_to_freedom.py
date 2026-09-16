@@ -557,14 +557,19 @@ class AccountSnapshot:
             if moved:
                 tell(f"the list of a previous run moved to {path_as_the_reader_knows_it(moved)}")
 
-    def nodes_for_request(self):
-        """Give the freshest list this request deserves, and its age."""
+    def nodes_for_request(self, fresh_seconds=None):
+        """Give the freshest list this request deserves, and its age.
+
+        A request may bring its own freshness in seconds, which wins over the
+        setting for this one call.
+        """
+        fresh = settings.SNAPSHOT_FRESH_SECONDS if fresh_seconds is None else fresh_seconds
         age = self.age_seconds()
-        if age is not None and age < settings.SNAPSHOT_FRESH_SECONDS:
+        if age is not None and age < fresh:
             return self.nodes, age, self.complaint
         with self.lock:
             age = self.age_seconds()
-            if age is None or age >= settings.SNAPSHOT_FRESH_SECONDS:
+            if age is None or age >= fresh:
                 self.collect_locked()
         return self.nodes, self.age_seconds(), self.complaint
 
@@ -919,6 +924,38 @@ def guess_answer_from_client_name(client_name):
     return "base64"
 
 
+def get_overrides_from_query(query):
+    """The settings one request may change for itself, read from its query.
+
+    A name from REQUEST_OVERRIDABLE_SETTINGS is taken in any case, an empty
+    value counts as not given, and a value of the wrong kind stops the
+    request with a plain reason in words. Every other name is told about and
+    left alone. Nothing here touches settings: the values travel further as
+    arguments, so they belong to this one request.
+    """
+    changeable = {name.upper(): name for name in settings.REQUEST_OVERRIDABLE_SETTINGS}
+    overrides = {}
+    for name, values in query.items():
+        setting_name = changeable.get(name.upper())
+        if setting_name is None:
+            tell(f"the request carried the parameter {name}, which is not changeable, it is left alone")
+            continue
+        raw = values[-1]
+        if raw == "":
+            continue
+        current = getattr(settings, setting_name)
+        if isinstance(current, str):
+            overrides[setting_name] = raw
+        elif isinstance(current, int):
+            try:
+                overrides[setting_name] = int(raw)
+            except ValueError:
+                return overrides, f"the parameter {name} takes a whole number, and the request said {raw}"
+        else:
+            tell(f"the setting {setting_name} has a kind no request can change, the parameter {name} is left alone")
+    return overrides, ""
+
+
 def get_multiplied_nodes(servers, names, fingerprints, template):
     """Every seen server with every seen camouflage name and every seen fingerprint."""
     nodes = []
@@ -954,10 +991,17 @@ def get_nodes_without_repeats(nodes):
     return unique
 
 
-def get_nodes_of_this_answer(snapshot, vendor_nodes):
-    """The vendor list, the append, the repeats dropped, the mixing and the limit."""
+def get_nodes_of_this_answer(snapshot, vendor_nodes, overrides=None):
+    """The vendor list, the append, the repeats dropped, the mixing and the limit.
+
+    A value from the request wins over settings for this answer alone.
+    """
+    overrides = overrides or {}
     nodes = list(vendor_nodes)
-    if settings.APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT:
+    if overrides.get(
+        "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT",
+        settings.APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT,
+    ):
         servers, names, fingerprints = snapshot.get_seen_servers_names_and_fingerprints()
         multiplied = get_multiplied_nodes(servers, names, fingerprints, vendor_nodes[0])
         nodes.extend(multiplied)
@@ -966,9 +1010,9 @@ def get_nodes_of_this_answer(snapshot, vendor_nodes):
             f"{len(servers)} servers, {len(names)} names and {len(fingerprints)} fingerprints"
         )
     nodes = get_nodes_without_repeats(nodes)
-    if settings.RANDOMIZE_ANSWER:
+    if overrides.get("RANDOMIZE_ANSWER", settings.RANDOMIZE_ANSWER):
         random.shuffle(nodes)
-    limit = settings.ANSWER_NODES_LIMIT
+    limit = overrides.get("ANSWER_NODES_LIMIT", settings.ANSWER_NODES_LIMIT)
     if limit > 0 and len(nodes) > limit:
         tell(f"the limit kept {limit} nodes of {len(nodes)}")
         nodes = nodes[:limit]
@@ -1041,9 +1085,14 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
                 404,
             )
             return
-        hardware_id = hardware_id_for(access_key, query.get("hwid", [""])[0])
+        overrides, refusal = get_overrides_from_query(query)
+        if refusal:
+            tell(f"the request {self.masked_path()} was refused: {refusal}")
+            self.send_text(f"{refusal}\n", with_body, 400)
+            return
+        hardware_id = hardware_id_for(access_key, overrides.get("DEFAULT_HARDWARE_ID", ""))
         snapshot = snapshot_for(access_key, hardware_id)
-        nodes, age, complaint = snapshot.nodes_for_request()
+        nodes, age, complaint = snapshot.nodes_for_request(overrides.get("SNAPSHOT_FRESH_SECONDS"))
         if not nodes:
             self.send_text(
                 "the bridge has no server list for this access key yet.\n"
@@ -1054,7 +1103,7 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
                 503,
             )
             return
-        served_nodes = get_nodes_of_this_answer(snapshot, nodes)
+        served_nodes = get_nodes_of_this_answer(snapshot, nodes, overrides)
         render_function, content_type = render[:2]
         body = render_function(served_nodes).encode("utf-8")
         self.send_response(200)
@@ -1100,6 +1149,11 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
         lines.append(f"{settings.SUBCONVERTER_SUBSCRIBE_URL}?target=surge&url=<this address in URL encoding>")
         lines.append("")
         lines.append(f"Settings live in settings.py, the list is refreshed when it is older than {settings.SNAPSHOT_FRESH_SECONDS} seconds.")
+        lines.append("")
+        lines.append("A request may change these settings for itself alone,")
+        lines.append("the name in the address is the name of the setting:")
+        for setting_name in settings.REQUEST_OVERRIDABLE_SETTINGS:
+            lines.append(f"    {setting_name.lower()}={getattr(settings, setting_name)}")
         return "\n".join(lines) + "\n"
 
     def help_page(self, message):

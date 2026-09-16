@@ -77,9 +77,10 @@ VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0.1
 # The value below is the hash of the machine of the author of this program,
 # so every copy of this program introduces itself to the vendor as the same
 # device as the vendor client does on that machine. Take your own hash with
-# the command above, put it either here or into ?hwid= of the subscription
-# address, and your device is your own. An empty value makes the bridge
-# invent a random stable id per access key, which the API also accepts.
+# the command above, put it either here or into the default_hardware_id
+# parameter of the subscription address, and your device is your own. An
+# empty value makes the bridge invent a random stable id per access key,
+# which the API also accepts.
 # The identifier is not a secret: a hash cannot be turned back into the machine
 # id. It does name the machine it came from, so do not publish your own hash
 # unless you mean to.
@@ -203,6 +204,20 @@ RANDOMIZE_ANSWER = 0
 # matter only when the append above multiplies them into thousands. Zero
 # means no limit at all.
 ANSWER_NODES_LIMIT = 777
+
+# What one request may change for itself. The name in the address is the
+# name of the setting here, in any case, and the value has the kind the
+# setting has now: a whole number stays a whole number, text stays text. A
+# name outside this list is left alone. Nothing here changes settings.py:
+# a value from a request travels as the argument of the two functions that
+# read these settings, so it belongs to that one request alone.
+REQUEST_OVERRIDABLE_SETTINGS = [
+    "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT",
+    "RANDOMIZE_ANSWER",
+    "ANSWER_NODES_LIMIT",
+    "SNAPSHOT_FRESH_SECONDS",
+    "DEFAULT_HARDWARE_ID",
+]
 
 # The journal of the current run: what the program did, in plain words, one
 # line per step. The next start moves the journal of the previous run aside

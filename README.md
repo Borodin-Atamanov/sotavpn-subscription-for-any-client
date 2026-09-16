@@ -151,6 +151,12 @@ vendor list, whether the order is mixed on every request, and how many nodes
 an answer carries at most. A node that repeats a server, name and fingerprint
 already in the list is dropped, the first one staying.
 
+A request may change some settings for itself alone: settings.py holds the
+list of names allowed to do so, and the name in the address is the name of
+the setting, for example answer_nodes_limit. The root page shows the names
+and their current values, and the settings file itself is never changed by
+a request.
+
 ## How to put it into your client
 
 v2rayN and v2rayNG: Subscription, Add subscription, paste the address.

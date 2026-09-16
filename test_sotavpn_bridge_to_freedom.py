@@ -20,6 +20,7 @@ import threading
 import time
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
 from unittest import mock
 
@@ -344,6 +345,29 @@ class SnapshotCheck(unittest.TestCase):
         self.assertEqual(len(nodes), 2)
         self.assertIn("did not expect", complaint)
 
+    def test_a_zero_freshness_override_collects_again(self):
+        self.snapshot.collected_at = bridge.time.monotonic()
+        collected = []
+        put_a_stand_in(
+            self,
+            bridge,
+            "collect_nodes",
+            lambda access_key, hardware_id: collected.append(1) or sample_nodes(),
+        )
+        put_a_stand_in(self, bridge, "read_subscription_expiry", lambda access_key, hardware_id: 0)
+        nodes, _age, _complaint = self.snapshot.nodes_for_request(0)
+        self.assertEqual(len(collected), 1)
+        self.assertEqual(len(nodes), 2)
+
+    def test_a_long_freshness_override_reuses_the_old_list(self):
+        def must_not_be_called(access_key, hardware_id):
+            self.fail("a long freshness must keep the old list")
+
+        put_a_stand_in(self, bridge, "collect_nodes", must_not_be_called)
+        nodes, age, _complaint = self.snapshot.nodes_for_request(10000)
+        self.assertEqual(len(nodes), 2)
+        self.assertIsNotNone(age)
+
 
 class SubscriptionHeaderCheck(unittest.TestCase):
     def setUp(self):
@@ -478,6 +502,20 @@ class SettingsCheck(unittest.TestCase):
         self.assertEqual(settings.RANDOMIZE_ANSWER, 0)
         self.assertEqual(settings.ANSWER_NODES_LIMIT, 777)
         self.assertEqual(settings.ENABLE_HTTPS, 1)
+
+    def test_every_overridable_name_is_a_setting_of_the_program(self):
+        for name in settings.REQUEST_OVERRIDABLE_SETTINGS:
+            self.assertTrue(hasattr(settings, name), name)
+        self.assertEqual(
+            set(settings.REQUEST_OVERRIDABLE_SETTINGS),
+            {
+                "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT",
+                "RANDOMIZE_ANSWER",
+                "ANSWER_NODES_LIMIT",
+                "SNAPSHOT_FRESH_SECONDS",
+                "DEFAULT_HARDWARE_ID",
+            },
+        )
 
     def test_the_certificate_files_are_in_the_repository(self):
         for path in (settings.CERTIFICATE_FILE, settings.PRIVATE_KEY_FILE):
@@ -901,6 +939,60 @@ class UniqueListsCheck(unittest.TestCase):
         self.assertEqual(self.read_lines(self.fingerprints_path(self.other_key)), ["firefox"])
 
 
+class RequestOverrideCheck(unittest.TestCase):
+    """What one request may change for itself, read from its query."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-override-")
+        put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
+        put_a_stand_in(self, bridge, "JOURNAL_FILE", None)
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.addCleanup(self.close_journal)
+        bridge.start_journal()
+
+    def close_journal(self):
+        """Close the journal of this check, so the next check opens its own."""
+        if bridge.JOURNAL_FILE is not None:
+            bridge.JOURNAL_FILE.close()
+            bridge.JOURNAL_FILE = None
+
+    def journal_text(self):
+        with open(os.path.join(self.directory, settings.JOURNAL_FILE_NAME), encoding="utf-8") as handle:
+            return handle.read()
+
+    def overrides_of(self, query_text):
+        return bridge.get_overrides_from_query(urllib.parse.parse_qs(query_text))
+
+    def test_no_query_gives_no_overrides_and_no_refusal(self):
+        self.assertEqual(self.overrides_of(""), ({}, ""))
+
+    def test_a_listed_name_is_read_in_any_case(self):
+        self.assertEqual(self.overrides_of("answer_nodes_limit=5"), ({"ANSWER_NODES_LIMIT": 5}, ""))
+        self.assertEqual(self.overrides_of("ANSWER_NODES_LIMIT=5"), ({"ANSWER_NODES_LIMIT": 5}, ""))
+
+    def test_a_text_setting_keeps_its_text(self):
+        self.assertEqual(
+            self.overrides_of("default_hardware_id=abc123"), ({"DEFAULT_HARDWARE_ID": "abc123"}, "")
+        )
+
+    def test_an_empty_value_counts_as_not_given(self):
+        self.assertEqual(self.overrides_of("answer_nodes_limit="), ({}, ""))
+
+    def test_a_name_outside_the_list_is_left_alone_and_named(self):
+        self.assertEqual(self.overrides_of("http_port=1"), ({}, ""))
+        self.assertIn("http_port", self.journal_text())
+
+    def test_the_old_hwid_name_is_left_alone_and_named(self):
+        self.assertEqual(self.overrides_of("hwid=abc"), ({}, ""))
+        self.assertIn("hwid", self.journal_text())
+
+    def test_a_value_that_is_not_a_number_stops_the_request(self):
+        overrides, refusal = self.overrides_of("answer_nodes_limit=abc")
+        self.assertEqual(overrides, {})
+        self.assertIn("answer_nodes_limit", refusal)
+        self.assertIn("abc", refusal)
+
+
 class ServedNodesCheck(unittest.TestCase):
     """What one answer carries: vendor nodes, multiplied additions, no repeats, mixing, limit."""
 
@@ -961,6 +1053,17 @@ class ServedNodesCheck(unittest.TestCase):
         for field in ("port", "uuid", "flow", "public_key", "short_id"):
             self.assertEqual(served[2][field], template[field])
         self.assertEqual({node["fingerprint"] for node in served}, {"chrome", "qq"})
+
+    def test_an_override_cuts_even_when_the_setting_says_otherwise(self):
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 5)
+        served = bridge.get_nodes_of_this_answer(self.snapshot, sample_nodes(), {"ANSWER_NODES_LIMIT": 1})
+        self.assertEqual([node["name"] for node in served], ["Sota AR Argentina ar-bue-01"])
+
+    def test_an_override_turns_the_append_on_for_one_request(self):
+        served = bridge.get_nodes_of_this_answer(
+            self.snapshot, sample_nodes(), {"APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT": 1}
+        )
+        self.assertEqual([node["name"] for node in served], self.expected_names())
 
     def test_multiplied_node_repeating_vendor_combination_is_dropped(self):
         put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
