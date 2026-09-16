@@ -33,7 +33,10 @@ Addresses
 """
 
 import base64
+import csv
+import datetime
 import html
+import io
 import json
 import os
 import secrets
@@ -177,6 +180,22 @@ def collect_nodes(access_key, hardware_id):
     return nodes
 
 
+def moment_to_epoch(moment):
+    """Turn the vendor moment into a unix time, keeping its own time zone."""
+    cleaned = (moment or "").strip()
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+0000"
+    for pattern in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            # The moment carries its own offset, and timestamp() respects it.
+            # A local time call here would move the date by the machine offset.
+            return int(datetime.datetime.strptime(cleaned, pattern).timestamp())
+        except ValueError:
+            continue
+    tell(f"the moment {moment} was not understood")
+    return 0
+
+
 def read_subscription_expiry(access_key, hardware_id):
     """Read the subscription end date, so clients can show it."""
     try:
@@ -186,16 +205,7 @@ def read_subscription_expiry(access_key, hardware_id):
     except RuntimeError as error:
         tell(f"the subscription end date is unknown: {error}")
         return 0
-    moment = profile.get("expiration_at")
-    if not moment:
-        return 0
-    cleaned = moment.replace("Z", "+0000")
-    for pattern in ("%Y-%m-%dT%H:%M:%S.%f%z", "%Y-%m-%dT%H:%M:%S%z"):
-        try:
-            return int(time.mktime(time.strptime(cleaned, pattern)))
-        except ValueError:
-            continue
-    return 0
+    return moment_to_epoch(profile.get("expiration_at"))
 
 
 class AccountSnapshot:
@@ -218,7 +228,7 @@ class AccountSnapshot:
     def collect_locked(self):
         try:
             nodes = collect_nodes(self.access_key, self.hardware_id)
-        except RuntimeError as error:
+        except Exception as error:  # noqa: BLE001 - a failed pass keeps the previous list
             self.complaint = str(error)
             tell(f"the collection for key {shorten(self.access_key)} failed: {error}")
             return
@@ -287,17 +297,17 @@ def node_to_link(node):
     return f"vless://{node['uuid']}@{node['address']}:{node['port']}?{query}#{urllib.parse.quote(node['name'])}"
 
 
-def answer_raw(nodes, access_key):
+def answer_raw(nodes):
     """The open list of links, one per line."""
     return "\n".join(node_to_link(node) for node in nodes) + "\n"
 
 
-def answer_base64(nodes, access_key):
+def answer_base64(nodes):
     """The same list in base64, the format almost every client expects."""
-    return base64.b64encode(answer_raw(nodes, access_key).encode("utf-8")).decode("ascii")
+    return base64.b64encode(answer_raw(nodes).encode("utf-8")).decode("ascii")
 
 
-def answer_clash(nodes, access_key):
+def answer_clash(nodes):
     """YAML for Clash, Mihomo and Stash, with one automatic test group."""
     names = ", ".join(f'"{node["name"]}"' for node in nodes)
     lines = ["proxies:"]
@@ -353,7 +363,7 @@ def sing_box_outbound(node, tag=None):
     }
 
 
-def answer_singbox(nodes, access_key):
+def answer_singbox(nodes):
     """JSON outbounds for sing-box and Hiddify, with one automatic test group."""
     outbounds = [sing_box_outbound(node) for node in nodes]
     outbounds.append(
@@ -370,7 +380,7 @@ def answer_singbox(nodes, access_key):
     return json.dumps({"outbounds": outbounds}, ensure_ascii=False, indent=2)
 
 
-def answer_singbox_full(nodes, access_key):
+def answer_singbox_full(nodes):
     """A complete sing-box configuration that a user can start as it is."""
     document = {
         "log": {"level": "info", "timestamp": True},
@@ -384,7 +394,7 @@ def answer_singbox_full(nodes, access_key):
                 "stack": "gvisor",
             }
         ],
-        "outbounds": json.loads(answer_singbox(nodes, access_key))["outbounds"],
+        "outbounds": json.loads(answer_singbox(nodes))["outbounds"],
         "route": {"final": "Sota automatic"},
     }
     return json.dumps(document, ensure_ascii=False, indent=2)
@@ -419,12 +429,12 @@ def xray_outbound(node):
     }
 
 
-def answer_xray(nodes, access_key):
+def answer_xray(nodes):
     """JSON outbounds for Xray and for the 3x-ui panel."""
     return json.dumps([xray_outbound(node) for node in nodes], ensure_ascii=False, indent=2)
 
 
-def answer_xray_full(nodes, access_key):
+def answer_xray_full(nodes):
     """A complete Xray configuration with a local socks port."""
     document = {
         "log": {"loglevel": "info"},
@@ -442,7 +452,7 @@ def answer_xray_full(nodes, access_key):
     return json.dumps(document, ensure_ascii=False, indent=2)
 
 
-def answer_html(nodes, access_key):
+def answer_html(nodes):
     """A page for a human being: every node with its link and its settings."""
     rows = [
         "<!DOCTYPE html>",
@@ -470,24 +480,40 @@ def answer_html(nodes, access_key):
     return "\n".join(rows) + "\n"
 
 
-def answer_csv(nodes, access_key):
+def answer_csv(nodes):
     """A table for manual entry on a router or in any client that asks by hand."""
-    lines = ["name,address,port,camouflage_name,fingerprint,public_key,short_id,uuid,flow,link"]
-    for node in nodes:
-        fields = [
-            node["name"],
-            node["address"],
-            str(node["port"]),
-            node["sni"],
-            node["fingerprint"],
-            node["public_key"],
-            node["short_id"],
-            node["uuid"],
-            node["flow"],
-            node_to_link(node),
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(
+        [
+            "name",
+            "address",
+            "port",
+            "camouflage_name",
+            "fingerprint",
+            "public_key",
+            "short_id",
+            "uuid",
+            "flow",
+            "link",
         ]
-        lines.append(",".join('"' + field.replace('"', '""') + '"' for field in fields))
-    return "\n".join(lines) + "\n"
+    )
+    for node in nodes:
+        writer.writerow(
+            [
+                node["name"],
+                node["address"],
+                node["port"],
+                node["sni"],
+                node["fingerprint"],
+                node["public_key"],
+                node["short_id"],
+                node["uuid"],
+                node["flow"],
+                node_to_link(node),
+            ]
+        )
+    return buffer.getvalue()
 
 
 ANSWERS = {
@@ -513,6 +539,26 @@ def guess_answer_from_client_name(client_name):
         if word in agent:
             return "singbox"
     return "base64"
+
+
+def subscription_headers(snapshot, node_count, age_seconds):
+    """The headers every client reads, and the end date only when it is known."""
+    headers = [
+        ("Profile-Title", settings.PROFILE_TITLE),
+        ("Profile-Update-Interval", str(settings.PROFILE_UPDATE_INTERVAL_HOURS)),
+        ("Profile-web-page-url", settings.PROFILE_HOME_PAGE),
+    ]
+    if snapshot.expiry:
+        headers.append(
+            ("Subscription-Userinfo", f"upload=0; download=0; total=0; expire={snapshot.expiry}")
+        )
+    else:
+        # Some clients read a zero in this header as an expired subscription,
+        # so without a known date it stays away completely.
+        tell("the subscription end date is unknown, the header about it is left out")
+    headers.append(("X-Bridge-Nodes", str(node_count)))
+    headers.append(("X-Bridge-Age-Seconds", str(int(age_seconds or 0))))
+    return headers
 
 
 class BridgeAnswerHandler(BaseHTTPRequestHandler):
@@ -575,19 +621,12 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
             )
             return
         render_function, content_type = render
-        body = render_function(nodes, access_key).encode("utf-8")
+        body = render_function(nodes).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Profile-Title", settings.PROFILE_TITLE)
-        self.send_header("Profile-Update-Interval", str(settings.PROFILE_UPDATE_INTERVAL_HOURS))
-        self.send_header("Profile-web-page-url", "https://sotavpn.org")
-        self.send_header(
-            "Subscription-Userinfo",
-            f"upload=0; download=0; total=0; expire={snapshot.expiry}",
-        )
-        self.send_header("X-Bridge-Nodes", str(len(nodes)))
-        self.send_header("X-Bridge-Age-Seconds", str(int(age or 0)))
+        for name, value in subscription_headers(snapshot, len(nodes), age):
+            self.send_header(name, value)
         self.end_headers()
         if with_body:
             self.wfile.write(body)
@@ -709,11 +748,8 @@ def main():
     if not servers:
         tell("no port could be opened, nothing to do, stopping")
         return 1
-    threads = []
     for server in servers:
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        threads.append(thread)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
     tell("the bridge is ready, put an address from the page above into your client")
     STOP_REQUESTED.wait()
     for server in servers:

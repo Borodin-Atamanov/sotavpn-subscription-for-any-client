@@ -66,10 +66,12 @@ SNAPSHOT_FRESH_SECONDS = 120
 # duplicates in their lists.
 NODE_NAME_PREFIX = "Sota"
 
-# What clients see as the profile title, and how often they should come back
-# for a new list. Most clients count this value in hours.
+# What clients see as the profile title, how often they should come back
+# for a new list, and the page they open when the user taps the profile.
+# Most clients count the interval in hours.
 PROFILE_TITLE = "Sota"
 PROFILE_UPDATE_INTERVAL_HOURS = 1
+PROFILE_HOME_PAGE = "https://sotavpn.org"
 
 # The address the automatic test group in the Clash and sing-box answers
 # uses to check whether a node is alive. The client does this test itself,

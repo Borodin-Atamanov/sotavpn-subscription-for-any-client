@@ -11,6 +11,7 @@ the servers, so they are safe to run anywhere.
 import base64
 import json
 import os
+import time
 import unittest
 
 import settings
@@ -54,7 +55,7 @@ def sample_nodes():
 class AnswerCheck(unittest.TestCase):
     def setUp(self):
         self.nodes = sample_nodes()
-        self.nodes_text = bridge.answer_raw(self.nodes, "key")
+        self.nodes_text = bridge.answer_raw(self.nodes)
 
     def test_link_carries_every_parameter(self):
         link = self.nodes_text.splitlines()[0]
@@ -63,12 +64,12 @@ class AnswerCheck(unittest.TestCase):
             self.assertIn(piece, link)
 
     def test_base64_answer_decodes_into_the_same_links(self):
-        decoded = base64.b64decode(bridge.answer_base64(self.nodes, "key")).decode("utf-8")
+        decoded = base64.b64decode(bridge.answer_base64(self.nodes)).decode("utf-8")
         self.assertEqual(decoded, self.nodes_text)
         self.assertEqual(len(decoded.splitlines()), 2)
 
     def test_clash_answer_has_an_automatic_test_group(self):
-        text = bridge.answer_clash(self.nodes, "key")
+        text = bridge.answer_clash(self.nodes)
         self.assertIn("proxies:", text)
         self.assertIn("type: url-test", text)
         self.assertIn(f"url: {settings.CLASH_TEST_URL}", text)
@@ -77,7 +78,7 @@ class AnswerCheck(unittest.TestCase):
             self.assertIn(f"public-key: {node['public_key']}", text)
 
     def test_singbox_answer_has_an_automatic_test_group(self):
-        document = json.loads(bridge.answer_singbox(self.nodes, "key"))
+        document = json.loads(bridge.answer_singbox(self.nodes))
         tags = [outbound["tag"] for outbound in document["outbounds"]]
         self.assertIn("Sota automatic", tags)
         automatic = document["outbounds"][tags.index("Sota automatic")]
@@ -85,36 +86,73 @@ class AnswerCheck(unittest.TestCase):
         self.assertEqual(sorted(automatic["outbounds"]), sorted(node["name"] for node in self.nodes))
 
     def test_singbox_full_answer_has_a_tun_inbound(self):
-        document = json.loads(bridge.answer_singbox_full(self.nodes, "key"))
+        document = json.loads(bridge.answer_singbox_full(self.nodes))
         self.assertEqual(document["inbounds"][0]["type"], "tun")
         self.assertEqual(document["route"]["final"], "Sota automatic")
 
     def test_xray_answer_has_one_vnext_per_node(self):
-        document = json.loads(bridge.answer_xray(self.nodes, "key"))
+        document = json.loads(bridge.answer_xray(self.nodes))
         self.assertEqual(len(document), len(self.nodes))
         self.assertEqual(document[0]["settings"]["vnext"][0]["address"], "13.140.54.5")
         self.assertEqual(document[0]["streamSettings"]["security"], "reality")
 
     def test_xray_full_answer_has_a_local_socks_port(self):
-        document = json.loads(bridge.answer_xray_full(self.nodes, "key"))
+        document = json.loads(bridge.answer_xray_full(self.nodes))
         self.assertEqual(document["inbounds"][0]["protocol"], "socks")
         self.assertEqual(document["inbounds"][0]["port"], settings.XRAY_LOCAL_SOCKS_PORT)
 
     def test_html_answer_shows_every_node(self):
-        text = bridge.answer_html(self.nodes, "key")
+        text = bridge.answer_html(self.nodes)
         for node in self.nodes:
             self.assertIn(node["name"], text)
             self.assertIn(node["public_key"], text)
 
     def test_csv_answer_has_one_row_per_node_and_a_header(self):
-        lines = bridge.answer_csv(self.nodes, "key").splitlines()
+        lines = bridge.answer_csv(self.nodes).splitlines()
         self.assertEqual(len(lines), len(self.nodes) + 1)
         self.assertTrue(lines[0].startswith("name,address,port,camouflage_name"))
         self.assertIn("13.140.54.5", lines[1])
 
+    def test_csv_answer_quotes_a_name_with_a_comma(self):
+        node = dict(self.nodes[0], name="Sota AR, Argentina")
+        line = bridge.answer_csv([node]).splitlines()[1]
+        self.assertTrue(line.startswith('"Sota AR, Argentina",'))
+
     def test_answer_formats_are_all_reachable(self):
         for suffix, _ in settings.ANSWER_FORMATS:
             self.assertIn(suffix, bridge.ANSWERS)
+
+
+class SubscriptionMomentCheck(unittest.TestCase):
+    def test_a_utc_moment_keeps_its_own_time_zone(self):
+        self.assertEqual(bridge.moment_to_epoch("2026-11-12T14:31:59.800289+0000"), 1794493919)
+        self.assertEqual(bridge.moment_to_epoch("2026-11-12T14:31:59.800289Z"), 1794493919)
+        self.assertEqual(bridge.moment_to_epoch("2026-11-12T14:31:59+0000"), 1794493919)
+
+    def test_an_offset_moment_is_counted_from_utc(self):
+        self.assertEqual(bridge.moment_to_epoch("2026-11-12T17:31:59+0300"), 1794493919)
+        self.assertEqual(bridge.moment_to_epoch("2026-11-12T11:31:59-0300"), 1794493919)
+
+    def test_the_time_zone_of_the_machine_does_not_move_the_moment(self):
+        original = os.environ.get("TZ")
+        answers = []
+        try:
+            for zone in ("UTC", "Asia/Tokyo", "America/Argentina/Buenos_Aires"):
+                os.environ["TZ"] = zone
+                time.tzset()
+                answers.append(bridge.moment_to_epoch("2026-11-12T14:31:59.800289+0000"))
+        finally:
+            if original is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original
+            time.tzset()
+        self.assertEqual(answers, [1794493919, 1794493919, 1794493919])
+
+    def test_an_unknown_moment_gives_zero(self):
+        self.assertEqual(bridge.moment_to_epoch(""), 0)
+        self.assertEqual(bridge.moment_to_epoch(None), 0)
+        self.assertEqual(bridge.moment_to_epoch("next month"), 0)
 
 
 class ClientNameCheck(unittest.TestCase):
@@ -165,6 +203,37 @@ class SnapshotCheck(unittest.TestCase):
             bridge.collect_nodes = original
         self.assertEqual(len(nodes), 2)
         self.assertLess(age, settings.SNAPSHOT_FRESH_SECONDS)
+
+    def test_an_unexpected_failure_also_keeps_the_old_nodes(self):
+        def broken_collection(access_key, hardware_id):
+            raise ValueError("a shape the program did not expect")
+
+        bridge.collect_nodes, original = broken_collection, bridge.collect_nodes
+        try:
+            nodes, _age, complaint = self.snapshot.nodes_for_request()
+        finally:
+            bridge.collect_nodes = original
+        self.assertEqual(len(nodes), 2)
+        self.assertIn("did not expect", complaint)
+
+
+class SubscriptionHeaderCheck(unittest.TestCase):
+    def setUp(self):
+        self.snapshot = bridge.AccountSnapshot("access key", "device id")
+
+    def header_names(self, expiry):
+        self.snapshot.expiry = expiry
+        return [name for name, _ in bridge.subscription_headers(self.snapshot, 2, 7)]
+
+    def test_the_end_date_header_appears_when_the_date_is_known(self):
+        self.snapshot.expiry = 1794493919
+        sent = dict(bridge.subscription_headers(self.snapshot, 2, 7))
+        self.assertEqual(sent["Subscription-Userinfo"], "upload=0; download=0; total=0; expire=1794493919")
+        self.assertEqual(sent["X-Bridge-Nodes"], "2")
+        self.assertEqual(sent["X-Bridge-Age-Seconds"], "7")
+
+    def test_the_end_date_header_stays_away_when_the_date_is_unknown(self):
+        self.assertNotIn("Subscription-Userinfo", self.header_names(0))
 
 
 class SettingsCheck(unittest.TestCase):
