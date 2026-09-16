@@ -7,7 +7,7 @@ program has nothing else to configure.
 
 # Name and version the program shows in its journal and in HTTP answers.
 PROGRAM_NAME = "sotavpn_bridge_to_freedom"
-PROGRAM_VERSION = "1.0.9"
+PROGRAM_VERSION = "1.0.17"
 
 # Where the source of the program lives and who wrote it. The program prints
 # both in the opening lines of its journal and carries them in the header of
