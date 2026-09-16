@@ -190,20 +190,20 @@ FINGERPRINTS_FILE_SUFFIX = "-fingerprints.log"
 # name and fingerprint already in the list is dropped right then, the first
 # one staying, so a vendor node wins over the multiplied copy of itself.
 # The switch is off at zero and on at one.
-APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT = 0
+APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT = 1
 
 # The second switch mixes the node list of every answer right before sending
 # it, the vendor nodes and the multiplied ones together, so the first line is
 # a different node on every request. Off at zero, on at one; without it the
 # order never changes: the vendor nodes first, then the multiplied ones by
 # server, name and fingerprint.
-RANDOMIZE_ANSWER = 0
+RANDOMIZE_ANSWER = 1
 
 # How many nodes one answer carries at most, counted after the append and the
 # mixing. The vendor sends about two hundred nodes, so the value starts to
 # matter only when the append above multiplies them into thousands. Zero
 # means no limit at all.
-ANSWER_NODES_LIMIT = 777
+ANSWER_NODES_LIMIT = 333
 
 # What one request may change for itself. The name in the address is the
 # name of the setting here, in any case, and the value has the kind the

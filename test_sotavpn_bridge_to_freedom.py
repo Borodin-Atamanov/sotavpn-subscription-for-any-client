@@ -497,10 +497,10 @@ class SettingsCheck(unittest.TestCase):
         )
         self.assertEqual(len(set(suffixes)), len(suffixes))
 
-    def test_answer_shape_defaults_are_off_off_and_777(self):
-        self.assertEqual(settings.APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT, 0)
-        self.assertEqual(settings.RANDOMIZE_ANSWER, 0)
-        self.assertEqual(settings.ANSWER_NODES_LIMIT, 777)
+    def test_answer_shape_defaults_are_on_on_and_333(self):
+        self.assertEqual(settings.APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT, 1)
+        self.assertEqual(settings.RANDOMIZE_ANSWER, 1)
+        self.assertEqual(settings.ANSWER_NODES_LIMIT, 333)
         self.assertEqual(settings.ENABLE_HTTPS, 1)
 
     def test_every_overridable_name_is_a_setting_of_the_program(self):
@@ -1000,6 +1000,11 @@ class ServedNodesCheck(unittest.TestCase):
         self.directory = tempfile.mkdtemp(prefix="bridge-served-")
         put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
         put_a_stand_in(self, bridge, "JOURNAL_FILE", None)
+        # A quiet baseline: every check turns on what it needs itself, so a
+        # change of the defaults in settings.py does not break these checks.
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 0)
+        put_a_stand_in(self, settings, "RANDOMIZE_ANSWER", 0)
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 0)
         self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
         self.addCleanup(self.close_journal)
         bridge.start_journal()
