@@ -157,6 +157,7 @@ def collect_nodes(access_key, hardware_id):
     )
     tell(f"the vendor listed {len(locations)} locations for key {shorten(access_key)}")
     nodes = []
+    skipped = 0
     for location in locations:
         time.sleep(settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS)
         what = f"the configuration of {location.get('name')}"
@@ -174,8 +175,16 @@ def collect_nodes(access_key, hardware_id):
         configuration = document.get("configuration") or document
         for gateway in location.get("gateways") or []:
             node = node_from_gateway(location, gateway, configuration)
-            if node is not None:
-                nodes.append(node)
+            if node is None:
+                continue
+            if not node["address"] or not node["uuid"]:
+                # A node without an address or without a key is a broken entry
+                # in every client, so it is better left out here.
+                skipped += 1
+                continue
+            nodes.append(node)
+    if skipped:
+        tell(f"{skipped} entries were left out: they came without an address or without a key")
     tell(f"collected {len(nodes)} nodes for key {shorten(access_key)}")
     return nodes
 
@@ -258,10 +267,20 @@ SNAPSHOTS_LOCK = threading.Lock()
 INVENTED_HARDWARE_IDS = {}
 
 
+def looks_like_a_device_id(value):
+    """A device id travels in a header, so it must hold plain printable text."""
+    return 0 < len(value) <= 128 and value.isascii() and value.isprintable()
+
+
 def hardware_id_for(access_key, requested):
     """Pick the device id: the asked one, the configured one, or a random one."""
-    if requested:
-        return requested
+    asked = (requested or "").strip()
+    if asked and not looks_like_a_device_id(asked):
+        # A value with control characters would make every vendor call fail.
+        tell("the device id in the address holds characters the vendor does not expect, it is left out")
+        asked = ""
+    if asked:
+        return asked
     if settings.DEFAULT_HARDWARE_ID:
         return settings.DEFAULT_HARDWARE_ID
     with SNAPSHOTS_LOCK:
@@ -307,12 +326,17 @@ def answer_base64(nodes):
     return base64.b64encode(answer_raw(nodes).encode("utf-8")).decode("ascii")
 
 
+def yaml_text(value):
+    """A YAML double quoted text: the escaping of JSON is valid YAML as well."""
+    return json.dumps(str(value), ensure_ascii=False)
+
+
 def answer_clash(nodes):
     """YAML for Clash, Mihomo and Stash, with one automatic test group."""
-    names = ", ".join(f'"{node["name"]}"' for node in nodes)
+    names = ", ".join(yaml_text(node["name"]) for node in nodes)
     lines = ["proxies:"]
     for node in nodes:
-        lines.append(f'  - name: "{node["name"]}"')
+        lines.append(f"  - name: {yaml_text(node['name'])}")
         lines.append("    type: vless")
         lines.append(f'    server: {node["address"]}')
         lines.append(f'    port: {node["port"]}')

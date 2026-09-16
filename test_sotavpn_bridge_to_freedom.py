@@ -118,6 +118,12 @@ class AnswerCheck(unittest.TestCase):
         line = bridge.answer_csv([node]).splitlines()[1]
         self.assertTrue(line.startswith('"Sota AR, Argentina",'))
 
+    def test_clash_answer_survives_a_name_with_a_quote(self):
+        node = dict(self.nodes[0], name='Sota AR "quoted"')
+        text = bridge.answer_clash([node])
+        self.assertIn('name: "Sota AR \\"quoted\\""', text)
+        self.assertIn('proxies: ["Sota AR \\"quoted\\""]', text)
+
     def test_answer_formats_are_all_reachable(self):
         for suffix, _ in settings.ANSWER_FORMATS:
             self.assertIn(suffix, bridge.ANSWERS)
@@ -234,6 +240,76 @@ class SubscriptionHeaderCheck(unittest.TestCase):
 
     def test_the_end_date_header_stays_away_when_the_date_is_unknown(self):
         self.assertNotIn("Subscription-Userinfo", self.header_names(0))
+
+
+class CollectionCheck(unittest.TestCase):
+    def setUp(self):
+        self.pause = settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS
+        settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0
+        self.original = bridge.vendor_request_with_retries
+
+        def vendor(path, access_key, hardware_id, query="", what=""):
+            if path == "/connection/list":
+                return [
+                    {
+                        "id": 7,
+                        "name": "Argentina",
+                        "shortname": "AR",
+                        "gateways": [
+                            {"name": "ar-bue-01", "address": "13.140.54.5"},
+                            {"name": "ar-bue-02", "address": ""},
+                        ],
+                    }
+                ]
+            return {
+                "configuration": {
+                    "outbounds": [
+                        {
+                            "type": "vless",
+                            "server_port": 443,
+                            "uuid": "8a629a6c-300c-4f98-9169-e56d47977668",
+                            "flow": "xtls-rprx-vision",
+                            "tls": {
+                                "server_name": "gridsnap.org",
+                                "utls": {"fingerprint": "chrome"},
+                                "reality": {"public_key": "SbVK", "short_id": "6ba85179e30d4fc2"},
+                            },
+                        }
+                    ]
+                }
+            }
+
+        bridge.vendor_request_with_retries = vendor
+
+    def tearDown(self):
+        bridge.vendor_request_with_retries = self.original
+        settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = self.pause
+
+    def test_a_gateway_without_an_address_is_left_out(self):
+        nodes = bridge.collect_nodes("access key", "device id")
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0]["address"], "13.140.54.5")
+        self.assertIn("AR", nodes[0]["name"])
+        self.assertIn("ar-bue-01", nodes[0]["name"])
+        self.assertEqual(nodes[0]["sni"], "gridsnap.org")
+
+
+class DeviceIdCheck(unittest.TestCase):
+    def test_plain_text_is_accepted(self):
+        self.assertTrue(bridge.looks_like_a_device_id("bc595c0af2e559eb9b19aec5aaf597dd6546b6945df791990de5f3d098a4289e"))
+        self.assertTrue(bridge.looks_like_a_device_id("device-id-01"))
+
+    def test_text_that_breaks_a_header_is_refused(self):
+        self.assertFalse(bridge.looks_like_a_device_id(""))
+        self.assertFalse(bridge.looks_like_a_device_id("two\nlines"))
+        self.assertFalse(bridge.looks_like_a_device_id("inject\r\nX-Page: 1"))
+        self.assertFalse(bridge.looks_like_a_device_id("x" * 129))
+
+    def test_a_broken_asked_id_falls_back_to_the_own_one(self):
+        key = "the key of the device id check"
+        invented = bridge.hardware_id_for(key, "")
+        self.assertEqual(bridge.hardware_id_for(key, "inject\r\nX-Page: 1"), invented)
+        self.assertNotIn("inject", invented)
 
 
 class SettingsCheck(unittest.TestCase):
