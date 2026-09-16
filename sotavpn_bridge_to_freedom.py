@@ -80,7 +80,7 @@ def path_next_to_the_program(path):
 
 def tell(message):
     """Write one line into the journal of this run and, when asked, onto the screen."""
-    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {settings.PROGRAM_NAME}: {message}"
+    line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}"
     write_journal_line(line)
     if settings.VERBOSE:
         print(line, flush=True)
@@ -205,7 +205,7 @@ def start_journal():
             JOURNAL_FILE = open(path, "a", encoding="utf-8")
         except OSError as error:
             JOURNAL_FILE = None
-            print(f"{settings.PROGRAM_NAME}: the journal file is not writable: {error}", flush=True)
+            print(f"the journal file is not writable: {error}", flush=True)
     if moved:
         tell(
             f"the journal of the previous run moved to "

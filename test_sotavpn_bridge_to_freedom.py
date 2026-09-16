@@ -470,6 +470,14 @@ class LogArchiveCheck(unittest.TestCase):
         self.close_the_journal()
         self.assertIn("a line nobody sees on the screen", kept)
 
+    def test_a_journal_line_carries_the_moment_and_the_message_only(self):
+        bridge.start_journal()
+        bridge.tell("the bridge is ready")
+        kept = self.read(self.journal_path()).splitlines()[-1]
+        self.close_the_journal()
+        self.assertRegex(kept, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} the bridge is ready$")
+        self.assertNotIn(f"{settings.PROGRAM_NAME}:", kept)
+
 
 class IgnoreRuleCheck(unittest.TestCase):
     def test_the_log_directory_never_enters_the_repository(self):
