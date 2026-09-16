@@ -106,14 +106,20 @@ you.
 
 ## The logs directory
 
-The program keeps two files next to itself, in the logs directory.
+The program keeps three files next to itself, in the logs directory.
 
 logs/<access key>.json holds the answers the vendor gave during the last
 pass, as readable JSON printed with tabs, and an empty line separates two
 answers. One account keeps one file, so two accounts never mix.
 
-When a new pass collects a fresh list, the previous file moves into a
-directory named after the moment that file itself was created, in the shape
+logs/<access key>.errors.txt holds the bodies the vendor sent with a refusal,
+with the moment and the code of the refusal in front of each body. A refusal
+is an answer in words rather than in JSON, so it stays apart from the answers
+of the same pass and never breaks the stream of documents. A pass that goes
+well writes no such file at all.
+
+When a new pass collects a fresh list, the previous files move into a
+directory named after the moment the file itself was created, in the shape
 2026-09-23-15-19-45. The journal works the same way: logs/log.log holds the
 run that is working now, and the next start moves the journal of the previous
 run into a dated directory first.

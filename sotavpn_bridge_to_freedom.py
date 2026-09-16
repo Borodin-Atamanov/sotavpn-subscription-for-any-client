@@ -26,8 +26,10 @@ What it keeps
     Every answer the vendor gives is written to logs/<access key>.json as
     readable JSON with tab indentation, one account in one file and an empty
     line between two answers, and the answers of the previous pass move into
-    a directory named after the moment that file was created. The journal of
-    the run goes to logs/log.log and moves the same way on the next start.
+    a directory named after the moment that file was created. The bodies the
+    vendor sends with a refusal go to logs/<access key>.errors.txt and move
+    the same way. The journal of the run goes to logs/log.log and moves the
+    same way on the next start.
     The logs directory is listed in .gitignore, because a raw vendor answer
     carries the addresses and the keys of the account.
 
@@ -157,17 +159,28 @@ def answer_file_path(access_key):
     return os.path.join(logs_directory(), answer_file_name(access_key))
 
 
-def start_a_fresh_answer_file(access_key):
-    """Move the answers of the previous pass of this account away."""
+def error_file_name(access_key):
+    """The file of one account that keeps the bodies the vendor sent with a refusal."""
+    return f"{access_key}{settings.ERROR_FILE_SUFFIX}"
+
+
+def error_file_path(access_key):
+    """Where the refusals of one account of this pass live."""
+    return os.path.join(logs_directory(), error_file_name(access_key))
+
+
+def start_a_fresh_log_pass(access_key):
+    """Move the logs of the previous pass of this account away."""
     with LOGS_LOCK:
         if not make_logs_directory():
             return
-        moved = move_into_a_dated_directory(answer_file_path(access_key))
-        if moved:
-            tell(
-                f"the vendor answers of the previous pass moved to "
-                f"{name_of_the_directory_that_holds(moved)}/{os.path.basename(moved)}"
-            )
+        for path in (answer_file_path(access_key), error_file_path(access_key)):
+            moved = move_into_a_dated_directory(path)
+            if moved:
+                tell(
+                    f"the log of the previous pass moved to "
+                    f"{name_of_the_directory_that_holds(moved)}/{os.path.basename(moved)}"
+                )
 
 
 def pretty_answer(raw_answer):
@@ -190,6 +203,19 @@ def keep_vendor_answer(access_key, raw_answer):
                 handle.write(pretty_answer(raw_answer) + "\n\n")
         except OSError as error:
             report_a_log_problem(f"a vendor answer could not be written: {error}")
+
+
+def keep_vendor_error(access_key, error_code, body):
+    """Write one refusal of the vendor with its code and the moment it arrived."""
+    with LOGS_LOCK:
+        if not make_logs_directory():
+            return
+        try:
+            with open(error_file_path(access_key), "a", encoding="utf-8") as handle:
+                handle.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} the vendor refused with code {error_code}\n")
+                handle.write(pretty_answer(body) + "\n\n")
+        except OSError as error:
+            report_a_log_problem(f"a vendor refusal could not be written: {error}")
 
 
 def start_journal():
@@ -257,6 +283,7 @@ def vendor_request_with_retries(path, access_key, hardware_id, query="", what=""
             return vendor_request(path, access_key, hardware_id, query)
         except urllib.error.HTTPError as error:
             complaint = error.read().decode("utf-8", "replace").strip() or str(error)
+            keep_vendor_error(access_key, error.code, complaint)
             tell(f"vendor refused {what or path} with code {error.code}: {complaint}")
             if error.code in (401, 403, 404):
                 raise RuntimeError(f"the vendor refused the request: {complaint}") from error
@@ -388,7 +415,7 @@ class AccountSnapshot:
         return time.monotonic() - self.collected_at
 
     def collect_locked(self):
-        start_a_fresh_answer_file(self.access_key)
+        start_a_fresh_log_pass(self.access_key)
         try:
             nodes = collect_nodes(self.access_key, self.hardware_id)
         except Exception as error:  # noqa: BLE001 - a failed pass keeps the previous list

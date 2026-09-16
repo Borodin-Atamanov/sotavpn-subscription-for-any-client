@@ -9,6 +9,7 @@ the servers, so they are safe to run anywhere.
 """
 
 import base64
+import io
 import json
 import os
 import shutil
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.error
 import urllib.request
 
 import settings
@@ -434,6 +436,9 @@ class LogArchiveCheck(unittest.TestCase):
     def answer_path(self, key=None):
         return os.path.join(self.directory, bridge.answer_file_name(key or self.key))
 
+    def error_path(self, key=None):
+        return os.path.join(self.directory, bridge.error_file_name(key or self.key))
+
     def journal_path(self):
         return os.path.join(self.directory, settings.JOURNAL_FILE_NAME)
 
@@ -450,20 +455,20 @@ class LogArchiveCheck(unittest.TestCase):
             bridge.JOURNAL_FILE = None
 
     def test_the_first_pass_opens_the_file_of_its_own_account(self):
-        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_answer(self.key, '{"locations": []}')
         self.assertEqual(self.read(self.answer_path()), '{\n\t"locations": []\n}\n\n')
         self.assertEqual(os.listdir(self.directory), [bridge.answer_file_name(self.key)])
 
     def test_the_answer_is_printed_with_tabs_and_readable_text(self):
-        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_answer(self.key, '{"locations":[{"id":8,"name":"Лучший сервер"}]}')
         text = self.read(self.answer_path())
         self.assertIn('\n\t"locations": [\n\t\t{\n\t\t\t"id": 8,\n\t\t\t"name": "Лучший сервер"\n\t\t}\n\t]\n', text)
         self.assertNotIn("\\u", text)
 
     def test_one_pass_keeps_every_answer_of_that_pass_in_one_file(self):
-        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_log_pass(self.key)
         for answer in ('{"a": 1}', '[{"b": 2}]', '{"c": 3}'):
             bridge.keep_vendor_answer(self.key, answer)
         blocks = [block for block in self.read(self.answer_path()).split("\n\n") if block.strip()]
@@ -471,8 +476,8 @@ class LogArchiveCheck(unittest.TestCase):
         self.assertEqual(len(os.listdir(self.directory)), 1)
 
     def test_two_accounts_keep_their_answers_apart(self):
-        bridge.start_a_fresh_answer_file(self.key)
-        bridge.start_a_fresh_answer_file(self.other_key)
+        bridge.start_a_fresh_log_pass(self.key)
+        bridge.start_a_fresh_log_pass(self.other_key)
         bridge.keep_vendor_answer(self.key, '{"account": "first"}')
         bridge.keep_vendor_answer(self.other_key, '{"account": "second"}')
         self.assertEqual(json.loads(self.read(self.answer_path())), {"account": "first"})
@@ -483,17 +488,17 @@ class LogArchiveCheck(unittest.TestCase):
         )
 
     def test_the_next_pass_moves_the_previous_answers_into_a_dated_directory(self):
-        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_answer(self.key, '{"first": true}')
         moment = self.moment_of(self.answer_path())
-        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_answer(self.key, '{"second": true}')
         self.assertEqual(json.loads(self.read(self.answer_path())), {"second": True})
         archived = os.path.join(self.directory, moment, bridge.answer_file_name(self.key))
         self.assertEqual(json.loads(self.read(archived)), {"first": True})
 
     def test_a_pass_that_arrives_first_finds_nothing_to_move(self):
-        bridge.start_a_fresh_answer_file(self.key)
+        bridge.start_a_fresh_log_pass(self.key)
         self.assertEqual(os.listdir(self.directory), [])
 
     def test_two_files_created_in_the_same_second_get_two_directories(self):
@@ -542,6 +547,76 @@ class LogArchiveCheck(unittest.TestCase):
         self.close_the_journal()
         self.assertRegex(kept, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} the bridge is ready$")
         self.assertNotIn(f"{settings.PROGRAM_NAME}:", kept)
+
+
+    def test_a_refusal_of_the_vendor_lands_in_its_own_file(self):
+        bridge.start_a_fresh_log_pass(self.key)
+        bridge.keep_vendor_error(self.key, 404, '{"detail": "Invalid access key"}')
+        self.assertFalse(os.path.exists(self.answer_path()))
+        kept = self.read(self.error_path())
+        self.assertRegex(kept, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} the vendor refused with code 404\n")
+        self.assertIn('\t"detail": "Invalid access key"\n', kept)
+
+    def test_the_refusals_of_one_account_stay_apart_from_its_answers(self):
+        bridge.start_a_fresh_log_pass(self.key)
+        bridge.keep_vendor_answer(self.key, '{"locations": []}')
+        bridge.keep_vendor_error(self.key, 429, "too many calls")
+        self.assertEqual(
+            sorted(os.listdir(self.directory)),
+            sorted([bridge.answer_file_name(self.key), bridge.error_file_name(self.key)]),
+        )
+        self.assertIn("too many calls", self.read(self.error_path()))
+        self.assertNotIn("too many calls", self.read(self.answer_path()))
+
+    def test_the_next_pass_moves_the_refusals_of_the_previous_one_away(self):
+        bridge.start_a_fresh_log_pass(self.key)
+        bridge.keep_vendor_error(self.key, 500, "the vendor broke")
+        moment = self.moment_of(self.error_path())
+        bridge.start_a_fresh_log_pass(self.key)
+        self.assertFalse(os.path.exists(self.error_path()))
+        archived = os.path.join(self.directory, moment, bridge.error_file_name(self.key))
+        self.assertIn("the vendor broke", self.read(archived))
+
+
+class VendorRefusalCheck(unittest.TestCase):
+    """A refused call of the vendor keeps its body in the file of refusals."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-refusals-")
+        self.key = "the-access-key-of-the-refusal-checks"
+        self.kept_directory = settings.LOGS_DIRECTORY
+        self.kept_urlopen = bridge.urllib.request.urlopen
+        settings.LOGS_DIRECTORY = self.directory
+
+    def tearDown(self):
+        settings.LOGS_DIRECTORY = self.kept_directory
+        bridge.urllib.request.urlopen = self.kept_urlopen
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def vendor_that_refuses(self, code, body):
+        """Answer every call the way the vendor answers a key it will not serve."""
+
+        def refusing_call(request, timeout=None):
+            raise urllib.error.HTTPError(
+                request.full_url, code, "refused", {}, io.BytesIO(body.encode("utf-8"))
+            )
+
+        bridge.urllib.request.urlopen = refusing_call
+
+    def kept_refusals(self):
+        with open(os.path.join(self.directory, bridge.error_file_name(self.key)), encoding="utf-8") as handle:
+            return handle.read()
+
+    def test_the_body_of_a_refusal_reaches_the_file_of_refusals(self):
+        self.vendor_that_refuses(404, '{"detail": "Invalid access key"}')
+        with self.assertRaises(RuntimeError) as refused:
+            bridge.vendor_request_with_retries(
+                "/connection/list", self.key, "device id", what="the location list"
+            )
+        refused.exception.__cause__.close()
+        kept = self.kept_refusals()
+        self.assertIn("the vendor refused with code 404", kept)
+        self.assertIn('\t"detail": "Invalid access key"', kept)
 
 
 class IgnoreRuleCheck(unittest.TestCase):

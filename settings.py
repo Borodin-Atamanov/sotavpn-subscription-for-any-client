@@ -131,6 +131,14 @@ LOGS_DIRECTORY = "logs"
 # file always holds one pass of one account, and two accounts never mix.
 ANSWER_FILE_SUFFIX = ".json"
 
+# The bodies the vendor sends together with a refusal: a wrong access key, a
+# location it no longer serves, a call it throttled. They go into a file of
+# their own, named after the access key, and move into the dated directory
+# together with the answers of the same pass. Kept apart from the answers,
+# because a refusal is an answer in words, not in JSON, and mixing the two
+# would ruin the stream of documents.
+ERROR_FILE_SUFFIX = ".errors.txt"
+
 # The journal of the current run. The next start moves the journal of the
 # previous run into a dated directory first, so one file always belongs to
 # one run.
