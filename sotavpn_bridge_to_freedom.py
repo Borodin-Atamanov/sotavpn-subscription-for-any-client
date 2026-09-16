@@ -1392,7 +1392,7 @@ def main():
     for server in servers:
         server.shutdown()
         server.server_close()
-    tell("the ports are closed, the program stops")
+    tell(f"the ports are closed, {settings.PROGRAM_NAME} version {settings.PROGRAM_VERSION} stops")
     return 0
 
 

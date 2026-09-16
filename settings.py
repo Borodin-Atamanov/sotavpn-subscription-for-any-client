@@ -11,7 +11,7 @@ what it does, which value is the default, and when to change it.
 # of its journal. The version grows with every change of the code and travels
 # in the Profile-Title header of the answers as well.
 PROGRAM_NAME = "sotavpn_bridge_to_freedom"
-PROGRAM_VERSION = "1.1.22"
+PROGRAM_VERSION = "1.1.23"
 
 # Where the source of the program lives and who wrote it. The program prints
 # both in the opening lines of its journal and carries them in the header of

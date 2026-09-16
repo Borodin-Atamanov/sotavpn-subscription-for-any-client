@@ -428,6 +428,7 @@ def uninstall_the_program(locations):
 
 def main(arguments):
     """Do what the first argument asks, on the account that runs this file."""
+    say(f"{settings.INSTALL_NAME} installer version {settings.PROGRAM_VERSION}")
     action = arguments[1] if len(arguments) > 1 else "install"
     if action not in ACTIONS:
         say(f"unknown action {action}, use one of: {', '.join(ACTIONS)}")
