@@ -2,10 +2,14 @@
 
 This file holds values only. The program imports it, and importing it is
 already execution: every name below exists after the import line, so the
-program has nothing else to configure.
+program has nothing else to configure. Every name is explained in place:
+what it does, which value is the default, and when to change it.
 """
 
-# Name and version the program shows in its journal and in HTTP answers.
+# The name the program calls itself. It names the journal, the service, the
+# command and the program file, and the program prints it in the opening line
+# of its journal. The version grows with every change of the code and travels
+# in the Profile-Title header of the answers as well.
 PROGRAM_NAME = "sotavpn_bridge_to_freedom"
 PROGRAM_VERSION = "1.0.17"
 
@@ -17,37 +21,49 @@ PROGRAM_SOURCE_URL = "https://github.com/Borodin-Atamanov/sotavpn-subscription-f
 PROGRAM_AUTHOR = "Borodin-Atamanov"
 
 # The program tells what it is doing after every step while VERBOSE is 1.
-# Set it to 0 only when the journal noise becomes a problem.
+# The lines on the screen are a copy of the journal, so switching them off
+# loses nothing: set this to 0 only when the noise becomes a problem.
 VERBOSE = 1
 
-# Address the program listens on. 127.0.0.1 means this machine only, which
-# is the safe default: the subscription URL contains your access key, so
-# anyone who can reach the port can read it. Use 0.0.0.0 to serve a home
-# network, and know that HTTPS becomes meaningful only in that case.
+# The address the program listens on. 127.0.0.1 means this machine only, and
+# that is the safe default: the subscription address carries your access key,
+# so anyone who can reach the port can read your whole server list. Use
+# 0.0.0.0 to serve a home network, and know that HTTPS is worth its
+# certificates only in that case.
 LISTEN_ADDRESS = "127.0.0.1"
 
-# Plain HTTP port. Works with every client, even with the most stubborn one.
+# The two ports the program opens. Plain HTTP works with every client, even
+# with the most stubborn one, so try the plain port first. The secure port
+# needs the certificate below and a client that is told to accept it. Both
+# ports are opened at once and serve the same answers, and a port that cannot
+# be taken does not stop the other. Ports above 1024 work for an ordinary
+# user, ports below 1024 only for root.
 HTTP_PORT = 25080
-
-# HTTPS port. The certificate in the certs directory is self signed, so the
-# client must be told to accept an untrusted certificate. Every client has
-# such a switch, and the README explains where it is.
 HTTPS_PORT = 25443
 ENABLE_HTTPS = True
 
-# The self signed certificate and its private key. Both files are public,
-# they live in this repository, so anyone can pretend to be this bridge.
-# Regenerate them for yourself, the command is in the README.
+# The self signed certificate and its private key, counted from this program.
+# Both files are in this public repository on purpose: HTTPS then works right
+# after the clone, with nothing to create. The price is that the private key
+# is public as well, so anybody who can stand between you and this program
+# can pretend to be this program, while somebody who merely listens to the
+# network still cannot read your traffic. Regenerate both for yourself when
+# that matters: the command and the full explanation are in certs/README.md.
 CERTIFICATE_FILE = "certs/bridge-self-signed-certificate.pem"
 PRIVATE_KEY_FILE = "certs/bridge-self-signed-private-key.pem"
 
-# The vendor API this bridge talks to.
+# The vendor API this bridge talks to: the host and the base path of every
+# call. Change the host only when the vendor moves to another address.
 VENDOR_HOST = "meowconnect.com"
 VENDOR_BASE_PATH = "/api/v1/public"
 
-# How long to wait for one vendor answer, how many times to retry a failed
-# call, how long to wait between retries, and how long to wait between two
-# calls in the same pass. The vendor does not like fast hammering.
+# How the bridge calls the vendor. VENDOR_TIME_OUT_SECONDS is the wait for one
+# answer, VENDOR_ATTEMPTS is how many times one failed call is repeated,
+# VENDOR_RETRY_PAUSE_SECONDS is the wait between two attempts of the same
+# call, and VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS is the small wait between
+# two different calls of one pass. One pass makes a call per location of the
+# vendor plus two, so the attempts and the pauses add up: a vendor that is
+# down makes a pass slow, and the vendor does not like fast hammering.
 VENDOR_TIME_OUT_SECONDS = 120
 VENDOR_ATTEMPTS = 5
 VENDOR_RETRY_PAUSE_SECONDS = 11
@@ -57,13 +73,12 @@ VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0.1
 # the sha256 of the machine id of the machine it runs on, and this was checked
 # against that client on 2026-09-15:
 #   printf '%s' "$(cat /etc/machine-id)" | sha256sum
-# The value below is that hash for one machine, so a copy of this program
-# introduces itself to the vendor as the same device as the vendor client does
-# on that machine. Every copy sends this same value, because a public
-# repository cannot carry the hash of the machine of each reader. Take your own
-# hash with the command above, put it either here or into ?hwid= of the
-# subscription address, and your device is your own. An empty value makes the
-# bridge invent a random stable id per access key, which the API also accepts.
+# The value below is the hash of the machine of the author of this program,
+# so every copy of this program introduces itself to the vendor as the same
+# device as the vendor client does on that machine. Take your own hash with
+# the command above, put it either here or into ?hwid= of the subscription
+# address, and your device is your own. An empty value makes the bridge
+# invent a random stable id per access key, which the API also accepts.
 # The identifier is not a secret: a hash cannot be turned back into the machine
 # id. It does name the machine it came from, so do not publish your own hash
 # unless you mean to.
@@ -73,62 +88,65 @@ DEFAULT_HARDWARE_ID = "bc595c0af2e559eb9b19aec5aaf597dd6546b6945df791990de5f3d09
 # sees the same kind of request as from their own application.
 VENDOR_USER_AGENT = "Sota Connect (v1.7.7/windows)"
 
-# How long a collected answer counts as fresh. After this many seconds the
-# next client request collects a new one. The vendor hands out a working
-# server address together with its camouflage name, and that pair goes stale
-# within minutes, so keep this small.
+# How long a collected list counts as fresh, in seconds. The vendor hands out
+# a working server address together with its camouflage name, and that pair
+# goes stale within minutes, so a client that asks again after this many
+# seconds gets a freshly collected list. A small value keeps the list young
+# and makes each refresh slower, a large one does the opposite.
 SNAPSHOT_FRESH_SECONDS = 15
 
 # Every node name starts with this word, then the country and the gateway
-# name follow. Names stay the same between refreshes, so clients do not grow
-# duplicates in their lists.
+# name follow. Names stay the same between refreshes, so a client does not
+# grow duplicates in its list. Change it to mark the list as your own.
 NODE_NAME_PREFIX = "Sota"
 
-# What clients see as the profile title, how often they should come back
-# for a new list, and the page they open when the user taps the profile.
-# Most clients count the interval in hours.
+# The two group names the answers offer to a client: the automatic one, which
+# the client fills by testing every node itself, and the manual one, which is
+# what the user picks a node from. They name something the bridge invents and
+# not a server of the vendor, so they may say anything.
+AUTOMATIC_GROUP_NAME = "Sota automatic"
+MANUAL_GROUP_NAME = "Sota manual"
+
+# What clients show and how often they come back for a new list: the title of
+# the profile, the interval in hours (most clients count it in hours) and the
+# page that opens when the user taps the profile.
 PROFILE_TITLE = "Sota"
 PROFILE_UPDATE_INTERVAL_HOURS = 1
 PROFILE_HOME_PAGE = "https://sotavpn.org"
 
-# The address the automatic test group in the Clash and sing-box answers
-# uses to check whether a node is alive. The client does this test itself,
-# so the bridge never has to ping anything.
-CLASH_TEST_URL = "http://cp.cloudflare.com/generate_204"
-CLASH_TEST_INTERVAL_SECONDS = 300
-CLASH_TEST_TOLERANCE_MILLISECONDS = 50
-SING_BOX_TEST_URL = "http://cp.cloudflare.com/generate_204"
-SING_BOX_TEST_INTERVAL = "5m"
-SING_BOX_TEST_TOLERANCE = 50
+# How the automatic group checks whether a node is alive: the address it
+# fetches, how often it repeats that check, and how many milliseconds faster
+# another node must be before the client switches to it. A small tolerance
+# keeps the client from switching on every flicker of latency. The client
+# does this test itself, so the bridge never pings anything. The address is
+# the tiny answer of Cloudflare that carries no body and is never cached, so
+# it measures the node and nothing else. The interval is one number: the
+# Clash answer wants seconds and the sing-box answer wants a duration, and
+# the program writes the duration out of this same number.
+AUTOMATIC_TEST_URL = "http://cp.cloudflare.com/generate_204"
+AUTOMATIC_TEST_INTERVAL_SECONDS = 300
+AUTOMATIC_TEST_TOLERANCE_MILLISECONDS = 50
 
-# Local ports and addresses used inside the full configurations the bridge
-# can hand out for sing-box and for Xray.
+# The local entry points inside the complete configurations the bridge can
+# hand out. sing-box gets a tunnel interface with this address and Xray gets
+# a socks port; a program of that machine then sends its traffic there. These
+# are addresses of the machine that runs the configuration and not of the
+# bridge, so change them only when something else already uses them.
 SING_BOX_LOCAL_TUN_ADDRESS = "10.0.42.1/30"
 XRAY_LOCAL_SOCKS_PORT = 10809
 
 # The converter that turns the raw node list into the dialects this bridge
 # does not write by itself: Surge, Loon, Quantumult, Quantumult X and
-# Surfboard. The root page shows a ready to copy address.
+# Surfboard. The root page shows a ready to copy address. The answers this
+# bridge does write are listed in the program itself, each with its own
+# description, so there is one list of them and not two that must agree.
 SUBCONVERTER_SUBSCRIBE_URL = "http://127.0.0.1:25500/sub"
 
-# Every answer the bridge can produce. The suffix goes after the access key
-# in the address, the description goes to the root page.
-ANSWER_FORMATS = (
-    ("base64", "subscription in base64, the default for most clients"),
-    ("raw", "the same list as open vless links"),
-    ("clash", "YAML for Clash, Mihomo and Stash with an automatic test group"),
-    ("singbox", "JSON outbounds for sing-box and Hiddify with a test group"),
-    ("singbox-full", "complete sing-box configuration with a tun inbound"),
-    ("xray", "JSON outbounds for Xray and for the 3x-ui panel"),
-    ("xray-full", "complete Xray configuration with a local socks inbound"),
-    ("html", "a page for a human being, with every node and its link"),
-    ("csv", "a table for manual entry: address, port, sni, key, short id"),
-)
-
 # Where the program keeps the raw answers of the vendor and its own journal.
-# The directory sits next to the program. It is listed in .gitignore, because
-# a raw vendor answer carries the addresses, the keys and the camouflage
-# names of the account.
+# The directory sits next to the program, and in a service installation that
+# is the program directory, so the logs travel with the program and survive
+# an update. It is listed in .gitignore, because a raw vendor answer carries
+# the addresses, the keys and the camouflage names of the account.
 LOGS_DIRECTORY = "logs"
 
 # The answers of the vendor during the last pass, in a file named after the
@@ -145,20 +163,25 @@ ANSWER_FILE_SUFFIX = ".json"
 # The bodies the vendor sends together with a refusal: a wrong access key, a
 # location it no longer serves, a call it throttled. They go into a file of
 # their own, named after the access key, and move aside together with the
-# answers of the same pass. Kept apart from the answers,
-# because a refusal is an answer in words, not in JSON, and mixing the two
-# would ruin the stream of documents.
+# answers of the same pass. Kept apart from the answers, because a refusal is
+# an answer in words and not in JSON, and mixing the two would ruin the
+# stream of documents.
 ERROR_FILE_SUFFIX = "-errors.log"
 
-# The journal of the current run. The next start moves the journal of the
-# previous run aside inside the same directory first, the moment in front of
-# its name, so one file always belongs to one run.
+# The journal of the current run: what the program did, in plain words, one
+# line per step. The next start moves the journal of the previous run aside
+# inside the same directory, the moment in front of its name, so one file
+# always belongs to one run and the failure of a past run is still readable.
 JOURNAL_FILE_NAME = "log.log"
 
 # The moment an archived log carries in front of its own name: the moment
-# that file itself was created, in the same shape Pyntara uses for its
-# timestamps.
+# that file itself was created.
 ARCHIVE_MOMENT_FORMAT = "%Y-%m-%d-%H-%M-%S"
+
+# The short name of an installation: it names the program directory, the
+# settings directory, the service file and the command. It is written once
+# here, so the two sets below cannot drift apart from each other.
+INSTALL_NAME = "sotavpn-bridge"
 
 # Where the installer puts the program and what it asks systemd to do. The
 # set is chosen by the account that runs the installer: root installs the
@@ -170,19 +193,19 @@ ARCHIVE_MOMENT_FORMAT = "%Y-%m-%d-%H-%M-%S"
 # goes to the target as it is, so the logs lie next to the program, exactly
 # as LOGS_DIRECTORY above says.
 SYSTEM_INSTALL = {
-    "code_directory": "/opt/sotavpn-bridge",
-    "settings_directory": "/etc/opt/sotavpn-bridge",
-    "unit_file": "/etc/systemd/system/sotavpn-bridge.service",
-    "command_link": "/usr/local/bin/sotavpn-bridge",
+    "code_directory": f"/opt/{INSTALL_NAME}",
+    "settings_directory": f"/etc/opt/{INSTALL_NAME}",
+    "unit_file": f"/etc/systemd/system/{INSTALL_NAME}.service",
+    "command_link": f"/usr/local/bin/{INSTALL_NAME}",
     "wanted_by": "multi-user.target",
     "temporary_directory": "/tmp",
 }
 
 USER_INSTALL = {
-    "code_directory": "~/.local/share/sotavpn-bridge",
-    "settings_directory": "~/.local/share/sotavpn-bridge",
-    "unit_file": "~/.config/systemd/user/sotavpn-bridge.service",
-    "command_link": "~/.local/bin/sotavpn-bridge",
+    "code_directory": f"~/.local/share/{INSTALL_NAME}",
+    "settings_directory": f"~/.local/share/{INSTALL_NAME}",
+    "unit_file": f"~/.config/systemd/user/{INSTALL_NAME}.service",
+    "command_link": f"~/.local/bin/{INSTALL_NAME}",
     "wanted_by": "default.target",
     "temporary_directory": "%t",
 }
@@ -191,15 +214,22 @@ USER_INSTALL = {
 # The only failure the program knows is a port somebody else holds, and a copy
 # of this program that holds it is asked to step aside and then killed, so the
 # restart of the service is the moment the fight is decided: the service keeps
-# coming back every half a minute and the copy that was started by hand goes
-# after one such round.
+# coming back after every such pause and the copy that was started by hand
+# goes after one round.
 SERVICE_RESTART_PAUSE_SECONDS = 42
 
 # What to do when a port is already held. The program asks the holder to stop
 # and takes the port, but only when the holder is another copy of this very
 # program: a process of any other program is named in the journal and left
 # alone. The first wait follows the soft signal, the second one follows the
-# hard signal, and both are counted in seconds.
+# hard signal, and both are counted in seconds. Finding the holder needs the
+# program fuser, which comes with the psmisc package on Linux.
 TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = 1
 BUSY_PORT_SOFT_WAIT_SECONDS = 5
 BUSY_PORT_HARD_WAIT_SECONDS = 7
+
+# How long the installer waits for the program it has just started to say in
+# its journal that its ports are open. A first start also collects the server
+# list of every account it is asked about, so this wait outlasts one pass over
+# the locations of the vendor.
+SECONDS_TO_WAIT_FOR_THE_PROGRAM = 15

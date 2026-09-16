@@ -55,9 +55,6 @@ SETTINGS_FILE_NAME = "settings.py"
 FILES_COPIED_WITH_THE_PROGRAM = ("README.md", "LICENSE")
 DIRECTORIES_COPIED_WITH_THE_PROGRAM = ("certs",)
 
-# How long to wait for the installed program to say that its ports are open.
-SECONDS_TO_WAIT_FOR_THE_PROGRAM = 15
-
 # The program itself, for the one rule that is already written there: how a
 # file that is put aside is named.
 the_program = importlib.import_module(settings.PROGRAM_NAME)
@@ -297,7 +294,7 @@ def the_journal_belongs_to_a_new_run(identity, identity_of_the_previous_run):
 def wait_for_the_program_to_open_its_ports(locations, identity_of_the_previous_run, seconds=None):
     """Wait for the new run to write its own journal and say that its ports are open."""
     if seconds is None:
-        seconds = SECONDS_TO_WAIT_FOR_THE_PROGRAM
+        seconds = settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM
     waited = 0
     while waited < seconds:
         if the_journal_belongs_to_a_new_run(identity_of_the_journal(locations), identity_of_the_previous_run):

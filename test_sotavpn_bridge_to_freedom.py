@@ -21,6 +21,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest import mock
 
 import settings
 import sotavpn_bridge_to_freedom as bridge
@@ -47,6 +48,17 @@ def tearDownModule():
     """Take the temporary log directory away and put the setting back."""
     settings.LOGS_DIRECTORY = KEPT_LOGS_DIRECTORY
     shutil.rmtree(LOGS_DIRECTORY_OF_THE_CHECKS, ignore_errors=True)
+
+
+def put_a_stand_in(case, target, name, replacement):
+    """Put a stand-in in place for the length of one check and take it away after.
+
+    The cleanup of the check itself does the restoring, so a check never has
+    to keep a copy of what it replaced and never forgets to put it back.
+    """
+    patcher = mock.patch.object(target, name, replacement)
+    case.addCleanup(patcher.stop)
+    return patcher.start()
 
 
 def sample_nodes():
@@ -97,7 +109,7 @@ class AnswerCheck(unittest.TestCase):
         text = bridge.answer_clash(self.nodes)
         self.assertIn("proxies:", text)
         self.assertIn("type: url-test", text)
-        self.assertIn(f"url: {settings.CLASH_TEST_URL}", text)
+        self.assertIn(f"url: {settings.AUTOMATIC_TEST_URL}", text)
         for node in self.nodes:
             self.assertIn(node["name"], text)
             self.assertIn(f"public-key: {node['public_key']}", text)
@@ -149,9 +161,35 @@ class AnswerCheck(unittest.TestCase):
         self.assertIn('name: "Sota AR \\"quoted\\""', text)
         self.assertIn('proxies: ["Sota AR \\"quoted\\""]', text)
 
-    def test_answer_formats_are_all_reachable(self):
-        for suffix, _ in settings.ANSWER_FORMATS:
-            self.assertIn(suffix, bridge.ANSWERS)
+    def test_every_answer_carries_its_builder_its_type_and_its_description(self):
+        for suffix, (builder, content_type, description) in bridge.ANSWERS.items():
+            self.assertTrue(callable(builder), suffix)
+            self.assertIn("/", content_type, suffix)
+            self.assertTrue(description.strip(), suffix)
+
+    def test_the_group_names_of_the_answers_come_from_the_settings(self):
+        put_a_stand_in(self, settings, "AUTOMATIC_GROUP_NAME", "My automatic")
+        put_a_stand_in(self, settings, "MANUAL_GROUP_NAME", "My manual")
+        clash = bridge.answer_clash(self.nodes)
+        singbox = json.loads(bridge.answer_singbox(self.nodes))
+        full = json.loads(bridge.answer_singbox_full(self.nodes))
+        self.assertIn('  - name: "My automatic"', clash)
+        self.assertIn('  - name: "My manual"', clash)
+        self.assertIn('    proxies: ["My automatic"]', clash)
+        self.assertIn('  - MATCH,"My manual"', clash)
+        self.assertIn("My automatic", [outbound["tag"] for outbound in singbox["outbounds"]])
+        self.assertEqual(full["route"]["final"], "My automatic")
+
+    def test_one_interval_serves_the_two_answers_that_want_it(self):
+        put_a_stand_in(self, settings, "AUTOMATIC_TEST_URL", "http://the.check/generate_204")
+        put_a_stand_in(self, settings, "AUTOMATIC_TEST_INTERVAL_SECONDS", 900)
+        clash = bridge.answer_clash(self.nodes)
+        singbox = json.loads(bridge.answer_singbox(self.nodes))
+        automatic = [out for out in singbox["outbounds"] if out["type"] == "urltest"][0]
+        self.assertIn("url: http://the.check/generate_204", clash)
+        self.assertIn("interval: 900", clash)
+        self.assertEqual(automatic["url"], "http://the.check/generate_204")
+        self.assertEqual(automatic["interval"], "900s")
 
 
 class SubscriptionMomentCheck(unittest.TestCase):
@@ -239,14 +277,14 @@ class RootPageCheck(unittest.TestCase):
     def test_a_plain_visitor_sees_plain_addresses(self):
         page, port = self.page_of_a_visitor_that_came_through(secure=False)
         addresses = self.address_lines_of(page)
-        self.assertEqual(len(addresses), len(settings.ANSWER_FORMATS))
+        self.assertEqual(len(addresses), len(bridge.ANSWERS))
         for line in addresses:
             self.assertTrue(line.startswith(f"http://127.0.0.1:{port}/sub/<access key>/"), line)
 
     def test_a_secure_visitor_sees_secure_addresses(self):
         page, port = self.page_of_a_visitor_that_came_through(secure=True)
         addresses = self.address_lines_of(page)
-        self.assertEqual(len(addresses), len(settings.ANSWER_FORMATS))
+        self.assertEqual(len(addresses), len(bridge.ANSWERS))
         for line in addresses:
             self.assertTrue(line.startswith(f"https://127.0.0.1:{port}/sub/<access key>/"), line)
 
@@ -270,15 +308,19 @@ class SnapshotCheck(unittest.TestCase):
         self.snapshot.nodes = sample_nodes()
         self.snapshot.collected_at = 1.0
 
-    def test_old_nodes_survive_a_failed_collection(self):
-        def broken_collection(access_key, hardware_id):
-            raise RuntimeError("the vendor is unreachable")
+    def a_collection_that_breaks(self, complaint, error=ValueError):
+        """A collection that fails the way a vendor answer that cannot be read fails."""
 
-        bridge.collect_nodes, original = broken_collection, bridge.collect_nodes
-        try:
-            nodes, age, complaint = self.snapshot.nodes_for_request()
-        finally:
-            bridge.collect_nodes = original
+        def broken_collection(access_key, hardware_id):
+            raise error(complaint)
+
+        return broken_collection
+
+    def test_old_nodes_survive_a_failed_collection(self):
+        put_a_stand_in(
+            self, bridge, "collect_nodes", self.a_collection_that_breaks("the vendor is unreachable", RuntimeError)
+        )
+        nodes, age, complaint = self.snapshot.nodes_for_request()
         self.assertEqual(len(nodes), 2)
         self.assertIn("unreachable", complaint)
         self.assertIsNotNone(age)
@@ -289,23 +331,16 @@ class SnapshotCheck(unittest.TestCase):
         def must_not_be_called(access_key, hardware_id):
             self.fail("a fresh list must not be collected again")
 
-        bridge.collect_nodes, original = must_not_be_called, bridge.collect_nodes
-        try:
-            nodes, age, _ = self.snapshot.nodes_for_request()
-        finally:
-            bridge.collect_nodes = original
+        put_a_stand_in(self, bridge, "collect_nodes", must_not_be_called)
+        nodes, age, _complaint = self.snapshot.nodes_for_request()
         self.assertEqual(len(nodes), 2)
         self.assertLess(age, settings.SNAPSHOT_FRESH_SECONDS)
 
     def test_an_unexpected_failure_also_keeps_the_old_nodes(self):
-        def broken_collection(access_key, hardware_id):
-            raise ValueError("a shape the program did not expect")
-
-        bridge.collect_nodes, original = broken_collection, bridge.collect_nodes
-        try:
-            nodes, _age, complaint = self.snapshot.nodes_for_request()
-        finally:
-            bridge.collect_nodes = original
+        put_a_stand_in(
+            self, bridge, "collect_nodes", self.a_collection_that_breaks("a shape the program did not expect")
+        )
+        nodes, _age, complaint = self.snapshot.nodes_for_request()
         self.assertEqual(len(nodes), 2)
         self.assertIn("did not expect", complaint)
 
@@ -331,46 +366,40 @@ class SubscriptionHeaderCheck(unittest.TestCase):
 
 class CollectionCheck(unittest.TestCase):
     def setUp(self):
-        self.pause = settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS
-        settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0
-        self.original = bridge.vendor_request_with_retries
+        put_a_stand_in(self, settings, "VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS", 0)
+        put_a_stand_in(self, bridge, "vendor_request_with_retries", self.an_answer_of_the_vendor)
 
-        def vendor(path, access_key, hardware_id, query="", what=""):
-            if path == "/connection/list":
-                return [
+    def an_answer_of_the_vendor(self, path, access_key, hardware_id, query="", what=""):
+        """The two answers a collection needs: the location list and one configuration."""
+        if path == "/connection/list":
+            return [
+                {
+                    "id": 7,
+                    "name": "Argentina",
+                    "shortname": "AR",
+                    "gateways": [
+                        {"name": "ar-bue-01", "address": "13.140.54.5"},
+                        {"name": "ar-bue-02", "address": ""},
+                    ],
+                }
+            ]
+        return {
+            "configuration": {
+                "outbounds": [
                     {
-                        "id": 7,
-                        "name": "Argentina",
-                        "shortname": "AR",
-                        "gateways": [
-                            {"name": "ar-bue-01", "address": "13.140.54.5"},
-                            {"name": "ar-bue-02", "address": ""},
-                        ],
+                        "type": "vless",
+                        "server_port": 443,
+                        "uuid": "8a629a6c-300c-4f98-9169-e56d47977668",
+                        "flow": "xtls-rprx-vision",
+                        "tls": {
+                            "server_name": "gridsnap.org",
+                            "utls": {"fingerprint": "chrome"},
+                            "reality": {"public_key": "SbVK", "short_id": "6ba85179e30d4fc2"},
+                        },
                     }
                 ]
-            return {
-                "configuration": {
-                    "outbounds": [
-                        {
-                            "type": "vless",
-                            "server_port": 443,
-                            "uuid": "8a629a6c-300c-4f98-9169-e56d47977668",
-                            "flow": "xtls-rprx-vision",
-                            "tls": {
-                                "server_name": "gridsnap.org",
-                                "utls": {"fingerprint": "chrome"},
-                                "reality": {"public_key": "SbVK", "short_id": "6ba85179e30d4fc2"},
-                            },
-                        }
-                    ]
-                }
             }
-
-        bridge.vendor_request_with_retries = vendor
-
-    def tearDown(self):
-        bridge.vendor_request_with_retries = self.original
-        settings.VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = self.pause
+        }
 
     def test_a_gateway_without_an_address_is_left_out(self):
         nodes = bridge.collect_nodes("access key", "device id")
@@ -407,6 +436,8 @@ class DeviceIdCheck(unittest.TestCase):
 
 
 class SettingsCheck(unittest.TestCase):
+    """Every value of the settings is usable as it stands."""
+
     def test_ports_are_usable_by_a_user(self):
         for port in (settings.HTTP_PORT, settings.HTTPS_PORT):
             self.assertGreater(port, 1024)
@@ -415,6 +446,26 @@ class SettingsCheck(unittest.TestCase):
     def test_times_are_reasonable(self):
         self.assertGreater(settings.SNAPSHOT_FRESH_SECONDS, 0)
         self.assertGreater(settings.VENDOR_TIME_OUT_SECONDS, 0)
+        self.assertGreaterEqual(settings.VENDOR_ATTEMPTS, 1)
+
+    def test_verbose_is_a_switch_of_one_and_zero(self):
+        self.assertIn(settings.VERBOSE, (0, 1))
+
+    def test_the_device_id_of_the_settings_is_a_hash_or_empty(self):
+        value = settings.DEFAULT_HARDWARE_ID
+        self.assertTrue(
+            value == ""
+            or (len(value) == 64 and all(character in "0123456789abcdef" for character in value))
+        )
+
+    def test_the_vendor_and_the_name_prefix_are_set(self):
+        self.assertTrue(settings.VENDOR_HOST)
+        self.assertTrue(settings.VENDOR_BASE_PATH.startswith("/"))
+        self.assertTrue(settings.NODE_NAME_PREFIX)
+
+    def test_the_certificate_files_are_in_the_repository(self):
+        for path in (settings.CERTIFICATE_FILE, settings.PRIVATE_KEY_FILE):
+            self.assertTrue(os.path.isfile(bridge.path_next_to_the_program(path)), f"{path} is missing")
 
     def test_the_header_of_the_program_carries_the_name_the_source_and_the_author(self):
         header = bridge.__doc__ or ""
@@ -430,15 +481,10 @@ class LogArchiveCheck(unittest.TestCase):
         self.directory = tempfile.mkdtemp(prefix="bridge-logs-")
         self.key = "the-access-key-of-the-log-checks"
         self.other_key = "the-access-key-of-the-other-account"
-        self.kept_directory = settings.LOGS_DIRECTORY
-        self.kept_journal = bridge.JOURNAL_FILE
-        settings.LOGS_DIRECTORY = self.directory
-        bridge.JOURNAL_FILE = None
-
-    def tearDown(self):
-        settings.LOGS_DIRECTORY = self.kept_directory
-        bridge.JOURNAL_FILE = self.kept_journal
-        shutil.rmtree(self.directory, ignore_errors=True)
+        put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
+        put_a_stand_in(self, bridge, "JOURNAL_FILE", None)
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.addCleanup(self.close_the_journal)
 
     def answer_path(self, key=None):
         return os.path.join(self.directory, bridge.answer_file_name(key or self.key))
@@ -564,7 +610,6 @@ class LogArchiveCheck(unittest.TestCase):
         self.assertRegex(kept, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} the bridge is ready$")
         self.assertNotIn(f"{settings.PROGRAM_NAME}:", kept)
 
-
     def test_a_refusal_of_the_vendor_lands_in_its_own_file(self):
         bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_error(self.key, 404, '{"detail": "Invalid access key"}')
@@ -616,14 +661,8 @@ class VendorRefusalCheck(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.mkdtemp(prefix="bridge-refusals-")
         self.key = "the-access-key-of-the-refusal-checks"
-        self.kept_directory = settings.LOGS_DIRECTORY
-        self.kept_urlopen = bridge.urllib.request.urlopen
-        settings.LOGS_DIRECTORY = self.directory
-
-    def tearDown(self):
-        settings.LOGS_DIRECTORY = self.kept_directory
-        bridge.urllib.request.urlopen = self.kept_urlopen
-        shutil.rmtree(self.directory, ignore_errors=True)
+        put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
 
     def vendor_that_refuses(self, code, body):
         """Answer every call the way the vendor answers a key it will not serve."""
@@ -633,7 +672,7 @@ class VendorRefusalCheck(unittest.TestCase):
                 request.full_url, code, "refused", {}, io.BytesIO(body.encode("utf-8"))
             )
 
-        bridge.urllib.request.urlopen = refusing_call
+        put_a_stand_in(self, bridge.urllib.request, "urlopen", refusing_call)
 
     def kept_refusals(self):
         with open(os.path.join(self.directory, bridge.error_file_name(self.key)), encoding="utf-8") as handle:
@@ -656,38 +695,23 @@ class BusyPortCheck(unittest.TestCase):
 
     def setUp(self):
         self.directory = tempfile.mkdtemp(prefix="bridge-busy-port-")
-        self.kept_directory = settings.LOGS_DIRECTORY
-        self.kept_journal = bridge.JOURNAL_FILE
-        self.kept_holders = bridge.pids_holding_the_port
-        self.kept_asking = bridge.is_another_copy_of_this_program
-        self.kept_signal = bridge.send_a_signal_to
-        self.kept_listening = bridge.listen_or_nothing
-        self.kept_arguments = bridge.arguments_of
-        self.kept_soft_wait = settings.BUSY_PORT_SOFT_WAIT_SECONDS
-        self.kept_hard_wait = settings.BUSY_PORT_HARD_WAIT_SECONDS
-        settings.LOGS_DIRECTORY = self.directory
-        settings.BUSY_PORT_SOFT_WAIT_SECONDS = 0
-        settings.BUSY_PORT_HARD_WAIT_SECONDS = 0
-        bridge.JOURNAL_FILE = None
+        put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
+        put_a_stand_in(self, settings, "BUSY_PORT_SOFT_WAIT_SECONDS", 0)
+        put_a_stand_in(self, settings, "BUSY_PORT_HARD_WAIT_SECONDS", 0)
+        put_a_stand_in(self, bridge, "JOURNAL_FILE", None)
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.addCleanup(self.close_the_journal)
         self.signals = []
         self.tries = []
         self.the_server = object()
-        bridge.send_a_signal_to = self.remember_the_signal
+        put_a_stand_in(self, bridge, "send_a_signal_to", self.remember_the_signal)
         bridge.start_journal()
 
-    def tearDown(self):
+    def close_the_journal(self):
+        """Close the journal of this check, so the next check opens its own."""
         if bridge.JOURNAL_FILE is not None:
             bridge.JOURNAL_FILE.close()
-        bridge.JOURNAL_FILE = self.kept_journal
-        bridge.pids_holding_the_port = self.kept_holders
-        bridge.is_another_copy_of_this_program = self.kept_asking
-        bridge.send_a_signal_to = self.kept_signal
-        bridge.listen_or_nothing = self.kept_listening
-        bridge.arguments_of = self.kept_arguments
-        settings.BUSY_PORT_SOFT_WAIT_SECONDS = self.kept_soft_wait
-        settings.BUSY_PORT_HARD_WAIT_SECONDS = self.kept_hard_wait
-        settings.LOGS_DIRECTORY = self.kept_directory
-        shutil.rmtree(self.directory, ignore_errors=True)
+            bridge.JOURNAL_FILE = None
 
     def remember_the_signal(self, pid, signal_number):
         """Record one signal instead of sending it."""
@@ -696,8 +720,10 @@ class BusyPortCheck(unittest.TestCase):
 
     def the_port_is_held_by(self, pid, by_a_copy_of_this_program):
         """Make the world look as if one process holds the port."""
-        bridge.pids_holding_the_port = lambda port: [pid]
-        bridge.is_another_copy_of_this_program = lambda other: by_a_copy_of_this_program
+        put_a_stand_in(self, bridge, "pids_holding_the_port", lambda port: [pid])
+        put_a_stand_in(
+            self, bridge, "is_another_copy_of_this_program", lambda other: by_a_copy_of_this_program
+        )
 
     def listening_answers_a_server_after(self, how_many_tries):
         """A listening call that answers nothing until the given number of tries has passed."""
@@ -706,7 +732,7 @@ class BusyPortCheck(unittest.TestCase):
             self.tries.append(1)
             return self.the_server if len(self.tries) >= how_many_tries else None
 
-        return listening
+        put_a_stand_in(self, bridge, "listen_or_nothing", listening)
 
     def read_the_journal(self):
         with open(os.path.join(self.directory, settings.JOURNAL_FILE_NAME), encoding="utf-8") as handle:
@@ -714,7 +740,7 @@ class BusyPortCheck(unittest.TestCase):
 
     def test_the_port_is_taken_from_another_copy_of_this_program(self):
         self.the_port_is_held_by(4242, True)
-        bridge.listen_or_nothing = self.listening_answers_a_server_after(2)
+        self.listening_answers_a_server_after(2)
         server = bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT")
         self.assertIs(server, self.the_server)
         self.assertEqual(self.signals, [(4242, signal.SIGTERM)])
@@ -723,33 +749,27 @@ class BusyPortCheck(unittest.TestCase):
 
     def test_a_copy_that_does_not_stop_gets_the_hard_signal(self):
         self.the_port_is_held_by(4242, True)
-        bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+        self.listening_answers_a_server_after(1000)
         self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
         self.assertEqual(self.signals, [(4242, signal.SIGTERM), (4242, signal.SIGKILL)])
         self.assertIn("this port is given up", self.read_the_journal())
 
     def test_a_stranger_holds_the_port_and_is_left_alone(self):
         self.the_port_is_held_by(1, False)
-        bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+        self.listening_answers_a_server_after(1000)
         self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
         self.assertEqual(self.signals, [])
         self.assertIn("is held by another program", self.read_the_journal())
 
     def test_taking_the_port_can_be_switched_off(self):
-        kept = settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY
-        settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = 0
-        try:
-            self.the_port_is_held_by(4242, True)
-            bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
-            self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
-        finally:
-            settings.TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY = kept
+        put_a_stand_in(self, settings, "TAKE_A_BUSY_PORT_FROM_ANOTHER_COPY", 0)
+        self.the_port_is_held_by(4242, True)
+        self.listening_answers_a_server_after(1000)
+        self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
         self.assertEqual(self.signals, [])
         self.assertIn("switched off", self.read_the_journal())
 
     def test_a_free_port_is_opened_without_any_signal(self):
-        bridge.listen_or_nothing = self.kept_listening
-        bridge.pids_holding_the_port = lambda port: []
         server = bridge.open_a_listening_server(0, "HTTP_PORT")
         self.assertIsNotNone(server)
         server.server_close()
@@ -764,13 +784,13 @@ class BusyPortCheck(unittest.TestCase):
             (["python3"], False),
             ([], False),
         ):
-            bridge.arguments_of = lambda pid, arguments=arguments: arguments
-            self.assertEqual(bridge.is_another_copy_of_this_program(4242), expected, arguments)
+            with mock.patch.object(bridge, "arguments_of", lambda pid, arguments=arguments: arguments):
+                self.assertEqual(bridge.is_another_copy_of_this_program(4242), expected, arguments)
 
     def test_the_waits_come_from_the_settings(self):
-        settings.BUSY_PORT_SOFT_WAIT_SECONDS = 0.2
+        put_a_stand_in(self, settings, "BUSY_PORT_SOFT_WAIT_SECONDS", 0.2)
         self.the_port_is_held_by(4242, True)
-        bridge.listen_or_nothing = self.listening_answers_a_server_after(1000)
+        self.listening_answers_a_server_after(1000)
         self.assertIsNone(bridge.open_a_listening_server(settings.HTTP_PORT, "HTTP_PORT"))
         self.assertGreaterEqual(len(self.tries), 4)
 
@@ -785,31 +805,13 @@ class ReadmeCheck(unittest.TestCase):
         self.assertNotIn(bridge.error_file_name("<access key>"), readme)
 
 
-class IgnoreRuleCheck(unittest.TestCase):
+class IgnoredFilesCheck(unittest.TestCase):
+    """What the program writes while it runs never enters the repository."""
+
     def test_the_log_directory_never_enters_the_repository(self):
         with open(os.path.join(bridge.PROGRAM_DIRECTORY, ".gitignore"), encoding="utf-8") as handle:
             rules = [line.strip() for line in handle]
         self.assertIn("logs/", rules)
-        self.assertGreaterEqual(settings.VENDOR_ATTEMPTS, 1)
-
-    def test_verbose_is_a_switch_of_one_and_zero(self):
-        self.assertIn(settings.VERBOSE, (0, 1))
-
-    def test_the_device_id_of_the_settings_is_a_hash_or_empty(self):
-        value = settings.DEFAULT_HARDWARE_ID
-        self.assertTrue(
-            value == ""
-            or (len(value) == 64 and all(character in "0123456789abcdef" for character in value))
-        )
-
-    def test_the_vendor_and_the_name_prefix_are_set(self):
-        self.assertTrue(settings.VENDOR_HOST)
-        self.assertTrue(settings.VENDOR_BASE_PATH.startswith("/"))
-        self.assertTrue(settings.NODE_NAME_PREFIX)
-
-    def test_the_certificate_files_are_in_the_repository(self):
-        for path in (settings.CERTIFICATE_FILE, settings.PRIVATE_KEY_FILE):
-            self.assertTrue(os.path.isfile(bridge.path_next_to_the_program(path)), f"{path} is missing")
 
 
 if __name__ == "__main__":

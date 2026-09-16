@@ -3,51 +3,24 @@
 Source: https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client
 Author: Borodin-Atamanov
 
-What it is
-    A small program that asks the Sota Connect vendor API for the server list
-    of your paid account and hands that list out as an ordinary subscription
-    URL, so any client works: v2rayN, NekoBox, Hiddify, Clash, Mihomo, Stash,
-    sing-box, Xray and the 3x-ui panel.
+It asks the Sota Connect vendor API for the server list of a paid account and
+hands that list out as an ordinary subscription address, so any client works:
+v2rayN, NekoBox, Hiddify, Clash, Mihomo, Stash, sing-box, Xray and the 3x-ui
+panel. It does not bring up a tunnel, it does not touch routes or DNS, and it
+does not check whether a node is alive: bringing up a tunnel is the client
+job, and choosing a live node is the client test group job. The list is
+collected again on request and never on a timer, because the vendor hands out
+an address together with its camouflage name and that pair goes stale within
+minutes.
 
-What it does not do
-    It does not bring up a tunnel, it does not touch routes or DNS, it does
-    not check whether a node is alive, and it does not store your vendor
-    application. Bringing up a tunnel is the client job, and choosing a live
-    node is the client test group job.
+Run it with python3 sotavpn_bridge_to_freedom.py. Every value lives in
+settings.py next to this file and the manual is README.md beside it, so this
+program keeps no second copy of either, and the logs are explained there with
+the values that name them.
 
-How it works
-    A client asks for a subscription. The program answers from the list it
-    already has, and when that list is older than SNAPSHOT_FRESH_SECONDS it
-    asks the vendor for a fresh one first. The vendor hands out an address
-    together with its camouflage name, and that pair goes stale within
-    minutes, so the list is collected again on request, not on a timer.
-
-How to run it
-    python3 sotavpn_bridge_to_freedom.py
-
-What it keeps
-    Every answer the vendor gives is written to logs/<access key>.json as
-    readable JSON with tab indentation, one account in one file and an empty
-    line between two answers. When a new pass starts, the file of the previous
-    pass moves aside inside the same directory, with the moment that file was
-    created in front of its name. The bodies the vendor sends with a refusal go
-    to the log file named after the access key of the account and move the same
-    way. The journal of the run goes to logs/log.log and moves the same way on
-    the next start.
-    The directory stays flat: an archived log is a file beside the current one,
-    never a file inside a directory of its own, so a reader sees the whole
-    history at once and the order is in the names.
-    The logs directory is listed in .gitignore, because a raw vendor answer
-    carries the addresses and the keys of the account.
-
-Where the values live
-    Every value is in settings.py next to this file. That file is imported
-    below, and the import itself is execution: nothing else is configured.
-
-Addresses
     http://127.0.0.1:25080/sub/<your access key>
     https://127.0.0.1:25443/sub/<your access key>
-    http://127.0.0.1:25080/ shows every answer this program can give.
+    http://127.0.0.1:25080/ lists every answer this program can give.
 """
 
 import base64
@@ -539,17 +512,17 @@ def answer_clash(nodes):
         lines.append(f'      public-key: {node["public_key"]}')
         lines.append(f'      short-id: {node["short_id"]}')
     lines.append("proxy-groups:")
-    lines.append('  - name: "Sota automatic"')
+    lines.append(f"  - name: {yaml_text(settings.AUTOMATIC_GROUP_NAME)}")
     lines.append("    type: url-test")
-    lines.append(f"    url: {settings.CLASH_TEST_URL}")
-    lines.append(f"    interval: {settings.CLASH_TEST_INTERVAL_SECONDS}")
-    lines.append(f"    tolerance: {settings.CLASH_TEST_TOLERANCE_MILLISECONDS}")
+    lines.append(f"    url: {settings.AUTOMATIC_TEST_URL}")
+    lines.append(f"    interval: {settings.AUTOMATIC_TEST_INTERVAL_SECONDS}")
+    lines.append(f"    tolerance: {settings.AUTOMATIC_TEST_TOLERANCE_MILLISECONDS}")
     lines.append(f"    proxies: [{names}]")
-    lines.append('  - name: "Sota manual"')
+    lines.append(f"  - name: {yaml_text(settings.MANUAL_GROUP_NAME)}")
     lines.append("    type: select")
-    lines.append('    proxies: ["Sota automatic"]')
+    lines.append(f"    proxies: [{yaml_text(settings.AUTOMATIC_GROUP_NAME)}]")
     lines.append("rules:")
-    lines.append('  - MATCH,"Sota manual"')
+    lines.append(f"  - MATCH,{yaml_text(settings.MANUAL_GROUP_NAME)}")
     return "\n".join(lines) + "\n"
 
 
@@ -575,21 +548,28 @@ def sing_box_outbound(node, tag=None):
     }
 
 
-def answer_singbox(nodes):
-    """JSON outbounds for sing-box and Hiddify, with one automatic test group."""
+def sing_box_outbounds(nodes):
+    """Every node as a sing-box outbound, then the automatic group and direct."""
     outbounds = [sing_box_outbound(node) for node in nodes]
     outbounds.append(
         {
             "type": "urltest",
-            "tag": "Sota automatic",
+            "tag": settings.AUTOMATIC_GROUP_NAME,
             "outbounds": [node["name"] for node in nodes],
-            "url": settings.SING_BOX_TEST_URL,
-            "interval": settings.SING_BOX_TEST_INTERVAL,
-            "tolerance": settings.SING_BOX_TEST_TOLERANCE,
+            "url": settings.AUTOMATIC_TEST_URL,
+            # sing-box counts the interval as a duration, so the number of
+            # seconds of the settings is written out with its unit here.
+            "interval": f"{settings.AUTOMATIC_TEST_INTERVAL_SECONDS}s",
+            "tolerance": settings.AUTOMATIC_TEST_TOLERANCE_MILLISECONDS,
         }
     )
     outbounds.append({"type": "direct", "tag": "direct"})
-    return json.dumps({"outbounds": outbounds}, ensure_ascii=False, indent=2)
+    return outbounds
+
+
+def answer_singbox(nodes):
+    """JSON outbounds for sing-box and Hiddify, with one automatic test group."""
+    return json.dumps({"outbounds": sing_box_outbounds(nodes)}, ensure_ascii=False, indent=2)
 
 
 def answer_singbox_full(nodes):
@@ -606,8 +586,8 @@ def answer_singbox_full(nodes):
                 "stack": "gvisor",
             }
         ],
-        "outbounds": json.loads(answer_singbox(nodes))["outbounds"],
-        "route": {"final": "Sota automatic"},
+        "outbounds": sing_box_outbounds(nodes),
+        "route": {"final": settings.AUTOMATIC_GROUP_NAME},
     }
     return json.dumps(document, ensure_ascii=False, indent=2)
 
@@ -728,16 +708,56 @@ def answer_csv(nodes):
     return buffer.getvalue()
 
 
+# Every answer this program can give: the function that builds it, the type
+# of what it sends, and the description the pages show about it. The suffix
+# of the address is the key of the table, so an address, its builder and its
+# description cannot drift apart.
 ANSWERS = {
-    "base64": (answer_base64, "text/plain; charset=utf-8"),
-    "raw": (answer_raw, "text/plain; charset=utf-8"),
-    "clash": (answer_clash, "text/yaml; charset=utf-8"),
-    "singbox": (answer_singbox, "application/json; charset=utf-8"),
-    "singbox-full": (answer_singbox_full, "application/json; charset=utf-8"),
-    "xray": (answer_xray, "application/json; charset=utf-8"),
-    "xray-full": (answer_xray_full, "application/json; charset=utf-8"),
-    "html": (answer_html, "text/html; charset=utf-8"),
-    "csv": (answer_csv, "text/csv; charset=utf-8"),
+    "base64": (
+        answer_base64,
+        "text/plain; charset=utf-8",
+        "the subscription in base64, the default of most clients",
+    ),
+    "raw": (
+        answer_raw,
+        "text/plain; charset=utf-8",
+        "the same list as open vless links, one per line",
+    ),
+    "clash": (
+        answer_clash,
+        "text/yaml; charset=utf-8",
+        "YAML for Clash, Mihomo and Stash, with an automatic test group",
+    ),
+    "singbox": (
+        answer_singbox,
+        "application/json; charset=utf-8",
+        "JSON outbounds for sing-box and Hiddify, with a test group",
+    ),
+    "singbox-full": (
+        answer_singbox_full,
+        "application/json; charset=utf-8",
+        "a complete sing-box configuration, with a tun inbound",
+    ),
+    "xray": (
+        answer_xray,
+        "application/json; charset=utf-8",
+        "JSON outbounds for Xray and for the 3x-ui panel",
+    ),
+    "xray-full": (
+        answer_xray_full,
+        "application/json; charset=utf-8",
+        "a complete Xray configuration, with a local socks inbound",
+    ),
+    "html": (
+        answer_html,
+        "text/html; charset=utf-8",
+        "a page for a human being, with every node and its link",
+    ),
+    "csv": (
+        answer_csv,
+        "text/csv; charset=utf-8",
+        "a table for manual entry: address, port, sni, key, short id",
+    ),
 }
 
 
@@ -832,7 +852,7 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
                 503,
             )
             return
-        render_function, content_type = render
+        render_function, content_type = render[:2]
         body = render_function(nodes).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", content_type)
@@ -866,7 +886,7 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
             f"Put your access key into the address, and you get {len(ANSWERS)} answers:",
             "",
         ]
-        for suffix, description in settings.ANSWER_FORMATS:
+        for suffix, (_render, _content_type, description) in ANSWERS.items():
             lines.append(f"{scheme}://{host}/sub/<access key>/{suffix}")
             lines.append(f"    {description}")
         lines.append("")
@@ -886,7 +906,7 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
             "the address of one answer looks like /sub/<access key>/<answer format>",
             "the answer formats are:",
         ]
-        for suffix, description in settings.ANSWER_FORMATS:
+        for suffix, (_render, _content_type, description) in ANSWERS.items():
             lines.append(f"    {suffix}: {description}")
         return "\n".join(lines) + "\n"
 

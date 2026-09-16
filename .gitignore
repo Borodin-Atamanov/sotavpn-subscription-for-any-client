@@ -7,7 +7,8 @@ __pycache__/
 # belong in the repository.
 logs/
 
-# Local editors.
+# Local editors and the tools that run inside them.
 *.swp
 .idea/
 .vscode/
+.sentry-native/

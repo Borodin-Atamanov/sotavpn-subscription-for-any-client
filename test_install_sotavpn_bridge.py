@@ -49,6 +49,18 @@ class LocationsCheck(unittest.TestCase):
             here = installer.locations_of_the_installation(mode, home_directory="/home/somebody", root=os.sep)
             self.assertEqual(here["log_directory"], os.path.join(here["code_directory"], settings.LOGS_DIRECTORY))
 
+    def test_the_two_modes_share_the_one_name_of_an_installation(self):
+        for mode in (installer.SYSTEM_MODE, installer.USER_MODE):
+            here = installer.locations_of_the_installation(mode, home_directory="/home/somebody", root=os.sep)
+            for what in ("code_directory", "settings_file", "unit_file", "command_link"):
+                self.assertIn(settings.INSTALL_NAME, here[what], what)
+
+    def test_the_name_of_an_installation_is_written_down_once(self):
+        path = os.path.join(installer.PROGRAM_DIRECTORY, installer.SETTINGS_FILE_NAME)
+        with open(path, encoding="utf-8") as handle:
+            written = handle.read()
+        self.assertEqual(written.count(settings.INSTALL_NAME), 1)
+
 
 class InstallationCheck(unittest.TestCase):
     """An installation into a root of its own, with every command recorded."""
@@ -73,10 +85,10 @@ class InstallationCheck(unittest.TestCase):
         self.commands = []
         self.messages = []
         self.kept_command_runner = installer.run_a_command
-        self.kept_waiting = installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM
+        self.kept_waiting = settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM
         self.kept_say = installer.say
         installer.run_a_command = self.record_the_command
-        installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM = 0
+        settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM = 0
         installer.say = self.messages.append
         self.locations = installer.locations_of_the_installation(
             installer.USER_MODE, home_directory=self.home, root=self.root
@@ -84,7 +96,7 @@ class InstallationCheck(unittest.TestCase):
 
     def tearDown(self):
         installer.run_a_command = self.kept_command_runner
-        installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM = self.kept_waiting
+        settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM = self.kept_waiting
         installer.say = self.kept_say
         shutil.rmtree(self.root, ignore_errors=True)
 
@@ -208,7 +220,7 @@ class InstallationCheck(unittest.TestCase):
     def test_the_wait_answers_the_lines_of_the_new_run_only(self):
         kept_identity = installer.identity_of_the_journal
         kept_lines = installer.journal_lines_of_the_installation
-        kept_seconds = installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM
+        kept_seconds = settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM
         steps = [
             (17, ["2026-09-16 10:57:19 plain HTTP is listening on http://127.0.0.1:25080"]),
             (18, ["2026-09-16 11:00:05 plain HTTP is listening on http://127.0.0.1:25080"]),
@@ -225,7 +237,7 @@ class InstallationCheck(unittest.TestCase):
         try:
             installer.identity_of_the_journal = identity_of_the_journal
             installer.journal_lines_of_the_installation = lines_of_the_journal
-            installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM = 5
+            settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM = 5
             self.assertEqual(
                 installer.wait_for_the_program_to_open_its_ports(self.locations, 17),
                 ["2026-09-16 11:00:05 plain HTTP is listening on http://127.0.0.1:25080"],
@@ -233,7 +245,7 @@ class InstallationCheck(unittest.TestCase):
         finally:
             installer.identity_of_the_journal = kept_identity
             installer.journal_lines_of_the_installation = kept_lines
-            installer.SECONDS_TO_WAIT_FOR_THE_PROGRAM = kept_seconds
+            settings.SECONDS_TO_WAIT_FOR_THE_PROGRAM = kept_seconds
 
     def test_the_whole_journal_of_the_run_is_read_and_not_a_cut_of_it(self):
         installer.install_the_program(self.source, self.locations)
