@@ -818,8 +818,14 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
             return "/" + "/".join(parts)
         return urllib.parse.urlparse(self.path).path or "/"
 
+    def answer_scheme(self):
+        """The scheme of the listener this request arrived on, read from the socket."""
+        return "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
+
     def root_page(self):
-        host = self.headers.get("Host") or f"{settings.LISTEN_ADDRESS}:{settings.HTTP_PORT}"
+        scheme = self.answer_scheme()
+        own_port = settings.HTTPS_PORT if scheme == "https" else settings.HTTP_PORT
+        host = self.headers.get("Host") or f"{settings.LISTEN_ADDRESS}:{own_port}"
         lines = [
             f"{settings.PROFILE_TITLE} subscription bridge to freedom, version {settings.PROGRAM_VERSION}.",
             "",
@@ -827,7 +833,7 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
             "",
         ]
         for suffix, description in settings.ANSWER_FORMATS:
-            lines.append(f"http://{host}/sub/<access key>/{suffix}")
+            lines.append(f"{scheme}://{host}/sub/<access key>/{suffix}")
             lines.append(f"    {description}")
         lines.append("")
         lines.append("Without a suffix the bridge guesses by the client name, and base64 wins.")

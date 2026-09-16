@@ -12,9 +12,12 @@ import base64
 import json
 import os
 import shutil
+import ssl
 import tempfile
+import threading
 import time
 import unittest
+import urllib.request
 
 import settings
 import sotavpn_bridge_to_freedom as bridge
@@ -194,6 +197,68 @@ class ClientNameCheck(unittest.TestCase):
         self.assertEqual(bridge.guess_answer_from_client_name("v2rayN/7.0"), "base64")
         self.assertEqual(bridge.guess_answer_from_client_name(""), "base64")
         self.assertEqual(bridge.guess_answer_from_client_name(None), "base64")
+
+
+class RootPageCheck(unittest.TestCase):
+    """The root page of the port the visitor came through tells that very port."""
+
+    def setUp(self):
+        self.opened_servers = []
+
+    def tearDown(self):
+        for server in self.opened_servers:
+            server.shutdown()
+            server.server_close()
+
+    def page_of_a_visitor_that_came_through(self, secure):
+        """Open a listener of the real program on a free port and read its root page."""
+        server = bridge.HTTPServer(("127.0.0.1", 0), bridge.BridgeAnswerHandler)
+        if secure:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(
+                bridge.path_next_to_the_program(settings.CERTIFICATE_FILE),
+                bridge.path_next_to_the_program(settings.PRIVATE_KEY_FILE),
+            )
+            server.socket = context.wrap_socket(server.socket, server_side=True)
+        self.opened_servers.append(server)
+        port = server.server_address[1]
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        scheme = "https" if secure else "http"
+        with urllib.request.urlopen(f"{scheme}://127.0.0.1:{port}/", context=context, timeout=15) as answer:
+            return answer.read().decode("utf-8"), port
+
+    def address_lines_of(self, page):
+        return [line for line in page.splitlines() if "/sub/<access key>/" in line]
+
+    def test_a_plain_visitor_sees_plain_addresses(self):
+        page, port = self.page_of_a_visitor_that_came_through(secure=False)
+        addresses = self.address_lines_of(page)
+        self.assertEqual(len(addresses), len(settings.ANSWER_FORMATS))
+        for line in addresses:
+            self.assertTrue(line.startswith(f"http://127.0.0.1:{port}/sub/<access key>/"), line)
+
+    def test_a_secure_visitor_sees_secure_addresses(self):
+        page, port = self.page_of_a_visitor_that_came_through(secure=True)
+        addresses = self.address_lines_of(page)
+        self.assertEqual(len(addresses), len(settings.ANSWER_FORMATS))
+        for line in addresses:
+            self.assertTrue(line.startswith(f"https://127.0.0.1:{port}/sub/<access key>/"), line)
+
+    def test_the_secure_page_never_sends_the_visitor_to_the_plain_port(self):
+        page, _ = self.page_of_a_visitor_that_came_through(secure=True)
+        self.assertNotIn(f"http://127.0.0.1:{settings.HTTP_PORT}", page)
+
+    def test_the_refresh_seconds_of_the_page_come_from_the_settings(self):
+        kept = settings.SNAPSHOT_FRESH_SECONDS
+        settings.SNAPSHOT_FRESH_SECONDS = 7
+        try:
+            page, _ = self.page_of_a_visitor_that_came_through(secure=False)
+        finally:
+            settings.SNAPSHOT_FRESH_SECONDS = kept
+        self.assertIn("older than 7 seconds", page)
 
 
 class SnapshotCheck(unittest.TestCase):

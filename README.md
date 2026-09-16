@@ -128,7 +128,8 @@ your account, so the directory is as private as your access key.
 ## HTTPS and the certificate
 
 The program serves plain HTTP on port 25080 and HTTPS on port 25443 at the
-same time.
+same time. The root page of each port tells the addresses with that very
+scheme, so a visitor of the secure port is never sent to the plain one.
 
 The certificate in the certs directory is self signed, and its private key is
 in this public repository. That means two things. Your traffic cannot be read
