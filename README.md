@@ -255,8 +255,3 @@ python3 -m unittest test_sotavpn_bridge_to_freedom
 The checks cover the answer formats, the automatic test groups, the choice of
 the answer by the client name, the device identifier, the collection of the
 node list, and the behaviour when the vendor stops answering.
-
-## Licence
-
-MIT. The program is not affiliated with the Sota service in any way. It talks
-to the same API the official application talks to, using your own account.
