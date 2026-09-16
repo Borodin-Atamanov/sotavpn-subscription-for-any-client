@@ -169,15 +169,17 @@ ANSWER_FILE_SUFFIX = ".json"
 # stream of documents.
 ERROR_FILE_SUFFIX = "-errors.log"
 
-# The unique servers and camouflage names an account has seen so far in this
-# run, one value per line: one file keeps the addresses, the other keeps the
-# names, and both are named after the access key. The pair is born at the
-# moment the first request of that account is answered; the pair of a
-# previous run moves aside right then, under the moment of its own birth. A
-# later pass rewrites a file of the pair only when the number of its values
-# grew, and a file that did not change is not touched at all.
+# The unique servers, camouflage names and fingerprints an account has seen
+# so far in this run, one value per line: one file keeps the addresses, one
+# keeps the names, one keeps the fingerprints, and all three are named after
+# the access key. The three are born at the moment the first request of that
+# account is answered; the files of a previous run move aside right then,
+# under the moment of their own birth. A later pass rewrites a file only
+# when the number of its values grew, and a file that did not change is not
+# touched at all.
 NAMES_FILE_SUFFIX = "-names.log"
 SERVERS_FILE_SUFFIX = "-servers.log"
+FINGERPRINTS_FILE_SUFFIX = "-fingerprints.log"
 
 # The journal of the current run: what the program did, in plain words, one
 # line per step. The next start moves the journal of the previous run aside

@@ -469,6 +469,7 @@ class SettingsCheck(unittest.TestCase):
             settings.ERROR_FILE_SUFFIX,
             settings.NAMES_FILE_SUFFIX,
             settings.SERVERS_FILE_SUFFIX,
+            settings.FINGERPRINTS_FILE_SUFFIX,
         )
         self.assertEqual(len(set(suffixes)), len(suffixes))
 
@@ -712,7 +713,7 @@ class FileMomentCheck(unittest.TestCase):
 
 
 class UniqueListsCheck(unittest.TestCase):
-    """The unique servers and camouflage names of a run, one value per line."""
+    """The unique servers, camouflage names and fingerprints of a run, one value per line."""
 
     def setUp(self):
         self.directory = tempfile.mkdtemp(prefix="bridge-unique-")
@@ -737,6 +738,9 @@ class UniqueListsCheck(unittest.TestCase):
     def names_path(self, key=None):
         return os.path.join(self.directory, bridge.names_file_name(key or self.key))
 
+    def fingerprints_path(self, key=None):
+        return os.path.join(self.directory, bridge.fingerprints_file_name(key or self.key))
+
     def read_lines(self, path):
         with open(path, encoding="utf-8") as handle:
             return handle.read().splitlines()
@@ -749,7 +753,7 @@ class UniqueListsCheck(unittest.TestCase):
         return os.stat(path).st_mtime_ns
 
     def a_pass_of(self, nodes):
-        self.snapshot.remember_the_unique_servers_and_names(nodes)
+        self.snapshot.remember_the_unique_servers_names_and_fingerprints(nodes)
         self.snapshot.keep_the_unique_files_of_the_run()
 
     def test_a_failed_collection_brings_no_files(self):
@@ -760,18 +764,20 @@ class UniqueListsCheck(unittest.TestCase):
         self.snapshot.collect_locked()
         self.assertEqual(os.listdir(self.directory), [settings.JOURNAL_FILE_NAME])
 
-    def test_the_pair_is_born_by_the_first_answered_collection(self):
+    def test_the_files_are_born_by_the_first_answered_collection(self):
         put_a_stand_in(self, bridge, "collect_nodes", lambda access_key, hardware_id: sample_nodes())
         put_a_stand_in(self, bridge, "read_subscription_expiry", lambda access_key, hardware_id: 0)
         self.snapshot.collect_locked()
         self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
         self.assertEqual(self.read_lines(self.names_path()), ["differencescope.com", "gridsnap.org"])
+        self.assertEqual(self.read_lines(self.fingerprints_path()), ["chrome", "qq"])
 
     def test_one_value_per_line_with_no_repeats(self):
         second_place = dict(sample_nodes()[0], name="Sota AR Argentina ar-bue-02")
         self.a_pass_of(sample_nodes() + [second_place])
         self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
         self.assertEqual(self.read_lines(self.names_path()), ["differencescope.com", "gridsnap.org"])
+        self.assertEqual(self.read_lines(self.fingerprints_path()), ["chrome", "qq"])
 
     def test_addresses_sort_as_numbers_and_names_sort_as_text(self):
         self.a_pass_of(
@@ -802,39 +808,65 @@ class UniqueListsCheck(unittest.TestCase):
         self.assertIn("95.181.152.1", self.read_lines(self.servers_path()))
         self.assertEqual(self.read_lines(self.names_path()), ["differencescope.com", "gridsnap.org"])
 
-    def test_a_pass_that_adds_nothing_leaves_both_files_untouched(self):
-        self.a_pass_of(sample_nodes())
-        moments = (self.moment_ns(self.servers_path()), self.moment_ns(self.names_path()))
-        self.a_pass_of(sample_nodes())
-        self.assertEqual(
-            moments, (self.moment_ns(self.servers_path()), self.moment_ns(self.names_path()))
+    def test_a_node_without_a_fingerprint_adds_no_fingerprint(self):
+        self.a_pass_of(
+            sample_nodes() + [dict(sample_nodes()[0], address="95.181.152.1", fingerprint="")]
         )
+        self.assertIn("95.181.152.1", self.read_lines(self.servers_path()))
+        self.assertEqual(self.read_lines(self.fingerprints_path()), ["chrome", "qq"])
+
+    def moments_of_the_list_files(self):
+        return (
+            self.moment_ns(self.servers_path()),
+            self.moment_ns(self.names_path()),
+            self.moment_ns(self.fingerprints_path()),
+        )
+
+    def test_a_pass_that_adds_nothing_leaves_the_files_untouched(self):
+        self.a_pass_of(sample_nodes())
+        moments = self.moments_of_the_list_files()
+        self.a_pass_of(sample_nodes())
+        self.assertEqual(moments, self.moments_of_the_list_files())
 
     def test_a_pass_that_grows_the_servers_rewrites_only_that_file(self):
         self.a_pass_of(sample_nodes())
         names_moment = self.moment_ns(self.names_path())
+        fingerprints_moment = self.moment_ns(self.fingerprints_path())
         self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], address="95.181.152.1")])
         self.assertIn("95.181.152.1", self.read_lines(self.servers_path()))
         self.assertEqual(names_moment, self.moment_ns(self.names_path()))
+        self.assertEqual(fingerprints_moment, self.moment_ns(self.fingerprints_path()))
 
     def test_a_pass_that_grows_the_names_rewrites_only_that_file(self):
         self.a_pass_of(sample_nodes())
         servers_moment = self.moment_ns(self.servers_path())
+        fingerprints_moment = self.moment_ns(self.fingerprints_path())
         self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], sni="aaa.example")])
         self.assertIn("aaa.example", self.read_lines(self.names_path()))
         self.assertEqual(servers_moment, self.moment_ns(self.servers_path()))
+        self.assertEqual(fingerprints_moment, self.moment_ns(self.fingerprints_path()))
 
-    def test_the_journal_names_the_pair_at_the_birth_and_is_quiet_on_a_rewrite(self):
+    def test_a_pass_that_grows_the_fingerprints_rewrites_only_that_file(self):
+        self.a_pass_of(sample_nodes())
+        servers_moment = self.moment_ns(self.servers_path())
+        names_moment = self.moment_ns(self.names_path())
+        self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], fingerprint="firefox")])
+        self.assertEqual(self.read_lines(self.fingerprints_path()), ["chrome", "firefox", "qq"])
+        self.assertEqual(servers_moment, self.moment_ns(self.servers_path()))
+        self.assertEqual(names_moment, self.moment_ns(self.names_path()))
+
+    def test_the_journal_names_the_files_at_the_birth_and_is_quiet_on_a_rewrite(self):
         self.a_pass_of(sample_nodes())
         kept = self.journal_text()
         self.assertIn(bridge.servers_file_name(self.key), kept)
         self.assertIn(bridge.names_file_name(self.key), kept)
+        self.assertIn(bridge.fingerprints_file_name(self.key), kept)
         mentions = kept.count(bridge.servers_file_name(self.key))
         self.a_pass_of(sample_nodes() + [dict(sample_nodes()[0], address="95.181.152.1")])
         self.assertEqual(mentions, self.journal_text().count(bridge.servers_file_name(self.key)))
 
-    def test_an_older_pair_moves_aside_under_the_moment_of_its_birth(self):
-        for path in (self.servers_path(), self.names_path()):
+    def test_older_files_move_aside_under_the_moment_of_their_birth(self):
+        for path in (self.servers_path(), self.names_path(), self.fingerprints_path()):
             with open(path, "w", encoding="utf-8") as handle:
                 handle.write("an older run\n")
         moments = {
@@ -842,7 +874,7 @@ class UniqueListsCheck(unittest.TestCase):
                 settings.ARCHIVE_MOMENT_FORMAT,
                 time.localtime(bridge.moment_of_the_birth_of_a_file(path)),
             )
-            for path in (self.servers_path(), self.names_path())
+            for path in (self.servers_path(), self.names_path(), self.fingerprints_path())
         }
         self.a_pass_of(sample_nodes())
         for path, moment in moments.items():
@@ -854,12 +886,13 @@ class UniqueListsCheck(unittest.TestCase):
     def test_two_accounts_keep_their_lists_apart(self):
         self.a_pass_of(sample_nodes())
         other = bridge.AccountSnapshot(self.other_key, "device id")
-        other.remember_the_unique_servers_and_names(
-            [dict(sample_nodes()[0], address="95.181.152.1", sni="aaa.example")]
+        other.remember_the_unique_servers_names_and_fingerprints(
+            [dict(sample_nodes()[0], address="95.181.152.1", sni="aaa.example", fingerprint="firefox")]
         )
         other.keep_the_unique_files_of_the_run()
         self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
         self.assertEqual(self.read_lines(self.servers_path(self.other_key)), ["95.181.152.1"])
+        self.assertEqual(self.read_lines(self.fingerprints_path(self.other_key)), ["firefox"])
 
 
 class VendorRefusalCheck(unittest.TestCase):

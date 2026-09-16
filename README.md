@@ -182,9 +182,10 @@ you.
 ## The logs directory
 
 The program writes logs: the answers the vendor gives, the bodies the vendor
-sends with a refusal, the unique servers and camouflage names each account has
-seen so far in this run, and the journal of its own run. They lie next to the
-program, in the directory named by LOGS_DIRECTORY in settings.py.
+sends with a refusal, the unique servers, camouflage names and fingerprints
+each account has seen so far in this run, and the journal of its own run.
+They lie next to the program, in the directory named by LOGS_DIRECTORY in
+settings.py.
 
 How those files are named, which suffix each one carries and how the files of
 an older run are put aside are values in settings.py as well, so this file does

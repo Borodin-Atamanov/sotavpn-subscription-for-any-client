@@ -195,6 +195,16 @@ def servers_file_path(access_key):
     return os.path.join(logs_directory(), servers_file_name(access_key))
 
 
+def fingerprints_file_name(access_key):
+    """The file of one account that keeps the unique fingerprints of this run."""
+    return f"{access_key}{settings.FINGERPRINTS_FILE_SUFFIX}"
+
+
+def fingerprints_file_path(access_key):
+    """Where the unique fingerprints of one account live."""
+    return os.path.join(logs_directory(), fingerprints_file_name(access_key))
+
+
 def address_sort_key(address):
     """An IPv4 address sorts as a number; anything else sorts as text after them."""
     parts = address.split(".")
@@ -207,8 +217,8 @@ def write_the_list_file(path, values):
     """One value per line, the whole list at once, over the file that is there.
 
     The file is truncated in place and never replaced: a replacement would
-    give the file a new moment of birth, and the pair of the list files of a
-    run keeps the moment it was born with.
+    give the file a new moment of birth, and the list files of a run keep
+    the moment they were born with.
     """
     with open(path, "w", encoding="utf-8") as handle:
         for value in values:
@@ -449,8 +459,10 @@ class AccountSnapshot:
         self.complaint = ""
         self.unique_servers = set()
         self.unique_names = set()
+        self.unique_fingerprints = set()
         self.servers_written = 0
         self.names_written = 0
+        self.fingerprints_written = 0
         self.lists_started = False
         self.lock = threading.Lock()
 
@@ -475,25 +487,27 @@ class AccountSnapshot:
         self.expiry = read_subscription_expiry(self.access_key, self.hardware_id)
         self.collected_at = time.monotonic()
         self.complaint = ""
-        self.remember_the_unique_servers_and_names(nodes)
+        self.remember_the_unique_servers_names_and_fingerprints(nodes)
         self.keep_the_unique_files_of_the_run()
 
-    def remember_the_unique_servers_and_names(self, nodes):
-        """Keep the address and the camouflage name of every node in memory."""
+    def remember_the_unique_servers_names_and_fingerprints(self, nodes):
+        """Keep the address, the camouflage name and the fingerprint of every node in memory."""
         for node in nodes:
             if node["address"]:
                 self.unique_servers.add(node["address"])
             if node["sni"]:
                 self.unique_names.add(node["sni"])
+            if node["fingerprint"]:
+                self.unique_fingerprints.add(node["fingerprint"])
 
     def keep_the_unique_files_of_the_run(self):
-        """Write the pair of list files: born now, and a later pass rewrites only what grew."""
+        """Write the three list files: born now, and a later pass rewrites only what grew."""
         with LOGS_LOCK:
             if not make_logs_directory():
                 return
             first_time = not self.lists_started
             if first_time:
-                self.move_the_older_pair_aside()
+                self.move_the_older_files_aside()
             if first_time or len(self.unique_servers) > self.servers_written:
                 try:
                     write_the_list_file(
@@ -509,17 +523,30 @@ class AccountSnapshot:
                     self.names_written = len(self.unique_names)
                 except OSError as error:
                     report_a_log_problem(f"the file of unique names could not be written: {error}")
+            if first_time or len(self.unique_fingerprints) > self.fingerprints_written:
+                try:
+                    write_the_list_file(
+                        fingerprints_file_path(self.access_key), sorted(self.unique_fingerprints)
+                    )
+                    self.fingerprints_written = len(self.unique_fingerprints)
+                except OSError as error:
+                    report_a_log_problem(f"the file of unique fingerprints could not be written: {error}")
             if first_time:
                 self.lists_started = True
                 tell(
-                    f"the unique servers and camouflage names of key {shorten(self.access_key)} are kept in "
-                    f"{path_as_the_reader_knows_it(servers_file_path(self.access_key))} and "
-                    f"{path_as_the_reader_knows_it(names_file_path(self.access_key))}"
+                    f"the unique servers, camouflage names and fingerprints of key {shorten(self.access_key)} are kept in "
+                    f"{path_as_the_reader_knows_it(servers_file_path(self.access_key))}, "
+                    f"{path_as_the_reader_knows_it(names_file_path(self.access_key))} and "
+                    f"{path_as_the_reader_knows_it(fingerprints_file_path(self.access_key))}"
                 )
 
-    def move_the_older_pair_aside(self):
-        """The pair of a previous run goes to the archive under the moment of its birth."""
-        for path in (servers_file_path(self.access_key), names_file_path(self.access_key)):
+    def move_the_older_files_aside(self):
+        """The files of a previous run go to the archive under the moment of their birth."""
+        for path in (
+            servers_file_path(self.access_key),
+            names_file_path(self.access_key),
+            fingerprints_file_path(self.access_key),
+        ):
             moved = move_a_log_file_aside(path)
             if moved:
                 tell(f"the list of a previous run moved to {path_as_the_reader_knows_it(moved)}")
