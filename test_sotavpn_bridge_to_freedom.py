@@ -415,6 +415,12 @@ class SettingsCheck(unittest.TestCase):
         self.assertGreater(settings.SNAPSHOT_FRESH_SECONDS, 0)
         self.assertGreater(settings.VENDOR_TIME_OUT_SECONDS, 0)
 
+    def test_the_header_of_the_program_carries_the_name_the_source_and_the_author(self):
+        header = bridge.__doc__ or ""
+        self.assertIn(settings.PROGRAM_NAME, header)
+        self.assertIn(settings.PROGRAM_SOURCE_URL, header)
+        self.assertIn(settings.PROGRAM_AUTHOR, header)
+
 
 class LogArchiveCheck(unittest.TestCase):
     """The raw vendor answers and the journal, in a directory of their own."""
@@ -585,6 +591,22 @@ class LogArchiveCheck(unittest.TestCase):
         self.assertFalse(os.path.exists(self.error_path()))
         archived = os.path.join(self.directory, f"{moment}_{bridge.error_file_name(self.key)}")
         self.assertIn("the vendor broke", self.read(archived))
+
+    def test_the_opening_lines_name_the_source_and_the_author(self):
+        kept = (settings.PROGRAM_NAME, settings.PROGRAM_SOURCE_URL, settings.PROGRAM_AUTHOR)
+        settings.PROGRAM_NAME = "the program of the checks"
+        settings.PROGRAM_SOURCE_URL = "https://example.invalid/the-source-of-the-checks"
+        settings.PROGRAM_AUTHOR = "the author of the checks"
+        try:
+            bridge.start_journal()
+            bridge.tell_the_name_the_source_and_the_author()
+            lines = self.read(self.journal_path()).splitlines()
+        finally:
+            settings.PROGRAM_NAME, settings.PROGRAM_SOURCE_URL, settings.PROGRAM_AUTHOR = kept
+            self.close_the_journal()
+        self.assertIn("the program of the checks version", lines[0])
+        self.assertIn("https://example.invalid/the-source-of-the-checks", lines[1])
+        self.assertIn("the author of the checks", lines[2])
 
 
 class VendorRefusalCheck(unittest.TestCase):

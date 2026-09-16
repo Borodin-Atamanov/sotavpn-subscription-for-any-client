@@ -1,5 +1,8 @@
 """Sotavpn subscription bridge to freedom.
 
+Source: https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client
+Author: Borodin-Atamanov <argentidin@gmail.com>
+
 What it is
     A small program that asks the Sota Connect vendor API for the server list
     of your paid account and hands that list out as an ordinary subscription
@@ -950,12 +953,19 @@ def start_https_server():
     return server
 
 
+def tell_the_name_the_source_and_the_author():
+    """The opening lines of the journal: what this is, where it comes from, who wrote it."""
+    tell(f"{settings.PROGRAM_NAME} version {settings.PROGRAM_VERSION} starts")
+    tell(f"the source is {settings.PROGRAM_SOURCE_URL}")
+    tell(f"the author is {settings.PROGRAM_AUTHOR}")
+
+
 def main():
     start_journal()
     for signal_name in ("SIGINT", "SIGTERM"):
         if hasattr(signal, signal_name):
             signal.signal(getattr(signal, signal_name), note_the_stop_request)
-    tell(f"{settings.PROGRAM_NAME} version {settings.PROGRAM_VERSION} starts")
+    tell_the_name_the_source_and_the_author()
     tell(f"values were taken from settings.py next to the program, the vendor is {settings.VENDOR_HOST}")
     servers = [server for server in (start_plain_server(), start_https_server()) if server is not None]
     if not servers:
