@@ -59,10 +59,21 @@ To stop the program, press Control and C in the same terminal.
 
 ## Every answer this program gives
 
-A suffix after the access key chooses the answer. The whole list of answers,
-the suffix of each one and the description of each one are values in settings.py,
-in ANSWER_FORMATS, so this file does not repeat them. The root page of the bridge
-prints that list with a ready to use address for every answer.
+The address of the subscription carries the access key and, when you want
+something other than the default, a suffix. Both ports serve the same list, so
+use the one your client likes, plain or secure:
+
+```
+http://127.0.0.1:25080/sub/<access key>               base64, the default of most clients
+https://127.0.0.1:25443/sub/<access key>/raw          the same list as open vless links
+http://127.0.0.1:25080/sub/<access key>/clash         YAML for Clash, Mihomo and Stash
+https://127.0.0.1:25443/sub/<access key>/singbox      JSON outbounds for sing-box and Hiddify
+http://127.0.0.1:25080/sub/<access key>/singbox-full  a complete sing-box configuration
+https://127.0.0.1:25443/sub/<access key>/xray         JSON outbounds for Xray and the 3x-ui panel
+http://127.0.0.1:25080/sub/<access key>/xray-full     a complete Xray configuration with local socks
+https://127.0.0.1:25443/sub/<access key>/html         a page for a human being
+http://127.0.0.1:25080/sub/<access key>/csv           a table for manual entry
+```
 
 When you give no suffix, the program looks at the name your client calls
 itself. A Clash family client gets YAML, a sing-box family client gets JSON,
@@ -79,9 +90,13 @@ Hiddify: Add profile, Add from URL, paste the address.
 Clash Verge, Mihomo Party, ClashX: Profiles, Add profile from URL, paste the
 address.
 
-sing-box and Xray by hand: open the root page and take the address of the full
-answer, the one that carries a complete configuration, then save that answer as
-a file.
+sing-box and Xray by hand: take the full answer of the one you use and save it
+as a configuration file:
+
+```
+https://127.0.0.1:25443/sub/<access key>/singbox-full
+http://127.0.0.1:25080/sub/<access key>/xray-full
+```
 
 3x-ui panel: Xray, outbound subscriptions, Create an outbound subscription,
 paste the address, enable private addresses, because the address points to
