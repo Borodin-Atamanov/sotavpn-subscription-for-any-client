@@ -1,0 +1,11 @@
+# Files the program writes while it runs, and Python caches.
+__pycache__/
+*.pyc
+
+# A snapshot of the last collected list, if you ever ask the program to keep one.
+bridge-snapshot.json
+
+# Local editors.
+*.swp
+.idea/
+.vscode/
