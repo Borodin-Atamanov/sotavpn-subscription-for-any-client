@@ -196,6 +196,16 @@ class InstallationCheck(unittest.TestCase):
         for name in os.listdir(directory):
             self.assertFalse(name.endswith(".service"), name)
 
+    def test_the_whole_journal_of_the_run_is_read_and_not_a_cut_of_it(self):
+        installer.install_the_program(self.source, self.locations)
+        os.makedirs(self.locations["log_directory"], exist_ok=True)
+        written = [f"the line {number} of the run" for number in range(1, 13)]
+        with open(
+            os.path.join(self.locations["log_directory"], settings.JOURNAL_FILE_NAME), "w", encoding="utf-8"
+        ) as handle:
+            handle.write("\n".join(written) + "\n")
+        self.assertEqual(installer.journal_lines_of_the_installation(self.locations), written)
+
     def test_status_tells_the_paths_and_the_state_of_the_service(self):
         installer.install_the_program(self.source, self.locations)
         self.assertEqual(installer.status_of_the_installation(self.locations), 0)

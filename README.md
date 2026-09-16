@@ -208,7 +208,7 @@ both modes are the SYSTEM_INSTALL and USER_INSTALL sets of settings.py, so
 there is one place to change them.
 
 Afterwards the command is on your path, and the state of the service and the
-last lines of its journal are one command away:
+journal of the current run are one command away:
 
 ```bash
 python3 install_sotavpn_bridge.py status

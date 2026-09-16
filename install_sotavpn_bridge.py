@@ -248,15 +248,20 @@ def state_of_the_service(locations):
     return out.strip() or err.strip() or "unknown"
 
 
-def journal_lines_of_the_installation(locations, how_many=6):
-    """The last lines of the journal the installed program writes."""
+def journal_lines_of_the_installation(locations):
+    """Every line the installed program has written in this run.
+
+    The journal file belongs to one run: the program moves the journal of the
+    previous run aside when it starts. There is therefore nothing to cut here,
+    and the whole file is answered, so a reader sees the takeover of a busy
+    port as well as the last line.
+    """
     path = os.path.join(locations["log_directory"], settings.JOURNAL_FILE_NAME)
     try:
         with open(path, encoding="utf-8") as handle:
-            lines = [line.rstrip("\n") for line in handle]
+            return [line.rstrip("\n") for line in handle]
     except OSError:
         return []
-    return lines[-how_many:]
 
 
 def wait_for_the_program_to_start(locations, seconds=None):
@@ -265,7 +270,7 @@ def wait_for_the_program_to_start(locations, seconds=None):
         seconds = SECONDS_TO_WAIT_FOR_THE_PROGRAM
     waited = 0
     while waited < seconds:
-        if any("is listening on" in line for line in journal_lines_of_the_installation(locations, how_many=40)):
+        if any("is listening on" in line for line in journal_lines_of_the_installation(locations)):
             return True
         time.sleep(1)
         waited += 1
@@ -297,6 +302,7 @@ def say_where_the_program_stands(locations):
     say(f"the program stands in {locations['code_directory']}")
     say(f"the settings stand in {locations['settings_file']}")
     say(f"the logs lie in {locations['log_directory']}")
+    say(f"the journal of this run is {os.path.join(locations['log_directory'], settings.JOURNAL_FILE_NAME)}")
     if locations["mode"] == USER_MODE:
         say(f"the state of the service: systemctl --user status {unit_name_of(locations)}")
         say(f"the lines of the service: journalctl --user -u {unit_name_of(locations)}")
