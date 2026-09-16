@@ -37,10 +37,11 @@ LISTEN_ADDRESS = "127.0.0.1"
 # needs the certificate below and a client that is told to accept it. Both
 # ports are opened at once and serve the same answers, and a port that cannot
 # be taken does not stop the other. Ports above 1024 work for an ordinary
-# user, ports below 1024 only for root.
+# user, ports below 1024 only for root. Every switch in this file answers
+# with one for on and zero for off: ENABLE_HTTPS opens the secure port.
 HTTP_PORT = 25080
 HTTPS_PORT = 25443
-ENABLE_HTTPS = True
+ENABLE_HTTPS = 1
 
 # The self signed certificate and its private key, counted from this program.
 # Both files are in this public repository on purpose: HTTPS then works right
@@ -180,6 +181,28 @@ ERROR_FILE_SUFFIX = "-errors.log"
 NAMES_FILE_SUFFIX = "-names.log"
 SERVERS_FILE_SUFFIX = "-servers.log"
 FINGERPRINTS_FILE_SUFFIX = "-fingerprints.log"
+
+# What one answer carries beyond the vendor list. With the first switch on,
+# every server, every camouflage name and every fingerprint this run has seen
+# so far, which are the three unique lists above, are multiplied, and that
+# product is appended after the vendor nodes. A node that repeats a server,
+# name and fingerprint already in the list is dropped right then, the first
+# one staying, so a vendor node wins over the multiplied copy of itself.
+# The switch is off at zero and on at one.
+APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT = 0
+
+# The second switch mixes the node list of every answer right before sending
+# it, the vendor nodes and the multiplied ones together, so the first line is
+# a different node on every request. Off at zero, on at one; without it the
+# order never changes: the vendor nodes first, then the multiplied ones by
+# server, name and fingerprint.
+RANDOMIZE_ANSWER = 0
+
+# How many nodes one answer carries at most, counted after the append and the
+# mixing. The vendor sends about two hundred nodes, so the value starts to
+# matter only when the append above multiplies them into thousands. Zero
+# means no limit at all.
+ANSWER_NODES_LIMIT = 777
 
 # The journal of the current run: what the program did, in plain words, one
 # line per step. The next start moves the journal of the previous run aside

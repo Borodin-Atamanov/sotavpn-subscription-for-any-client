@@ -30,6 +30,7 @@ import html
 import io
 import json
 import os
+import random
 import secrets
 import shutil
 import signal
@@ -500,6 +501,11 @@ class AccountSnapshot:
             if node["fingerprint"]:
                 self.unique_fingerprints.add(node["fingerprint"])
 
+    def get_seen_servers_names_and_fingerprints(self):
+        """Copies of the three unique lists of this run, taken under the lock."""
+        with self.lock:
+            return set(self.unique_servers), set(self.unique_names), set(self.unique_fingerprints)
+
     def keep_the_unique_files_of_the_run(self):
         """Write the three list files: born now, and a later pass rewrites only what grew."""
         with LOGS_LOCK:
@@ -913,6 +919,62 @@ def guess_answer_from_client_name(client_name):
     return "base64"
 
 
+def get_multiplied_nodes(servers, names, fingerprints, template):
+    """Every seen server with every seen camouflage name and every seen fingerprint."""
+    nodes = []
+    for address in sorted(servers, key=address_sort_key):
+        for name in sorted(names):
+            for fingerprint in sorted(fingerprints):
+                nodes.append(
+                    dict(
+                        template,
+                        name=f"{settings.NODE_NAME_PREFIX} {address} {name} {fingerprint}",
+                        address=address,
+                        sni=name,
+                        fingerprint=fingerprint,
+                    )
+                )
+    return nodes
+
+
+def get_nodes_without_repeats(nodes):
+    """Drop a node whose server, name and fingerprint are already in the list.
+
+    The first node of a repeat stays, so a vendor node wins over the
+    multiplied copy of itself and the order of the rest does not change.
+    """
+    seen = set()
+    unique = []
+    for node in nodes:
+        combination = (node["address"], node["sni"], node["fingerprint"])
+        if combination in seen:
+            continue
+        seen.add(combination)
+        unique.append(node)
+    return unique
+
+
+def get_nodes_of_this_answer(snapshot, vendor_nodes):
+    """The vendor list, the append, the repeats dropped, the mixing and the limit."""
+    nodes = list(vendor_nodes)
+    if settings.APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT:
+        servers, names, fingerprints = snapshot.get_seen_servers_names_and_fingerprints()
+        multiplied = get_multiplied_nodes(servers, names, fingerprints, vendor_nodes[0])
+        nodes.extend(multiplied)
+        tell(
+            f"the multiplication added {len(multiplied)} nodes from "
+            f"{len(servers)} servers, {len(names)} names and {len(fingerprints)} fingerprints"
+        )
+    nodes = get_nodes_without_repeats(nodes)
+    if settings.RANDOMIZE_ANSWER:
+        random.shuffle(nodes)
+    limit = settings.ANSWER_NODES_LIMIT
+    if limit > 0 and len(nodes) > limit:
+        tell(f"the limit kept {limit} nodes of {len(nodes)}")
+        nodes = nodes[:limit]
+    return nodes
+
+
 def subscription_headers(snapshot, node_count, age_seconds):
     """The headers every client reads, and the end date only when it is known."""
     headers = [
@@ -992,17 +1054,18 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
                 503,
             )
             return
+        served_nodes = get_nodes_of_this_answer(snapshot, nodes)
         render_function, content_type = render[:2]
-        body = render_function(nodes).encode("utf-8")
+        body = render_function(served_nodes).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        for name, value in subscription_headers(snapshot, len(nodes), age):
+        for name, value in subscription_headers(snapshot, len(served_nodes), age):
             self.send_header(name, value)
         self.end_headers()
         if with_body:
             self.wfile.write(body)
-        tell(f"sent {suffix} with {len(nodes)} nodes, the list is {int(age or 0)} seconds old")
+        tell(f"sent {suffix} with {len(served_nodes)} nodes, the list is {int(age or 0)} seconds old")
 
     def masked_path(self):
         """The request path with the access key hidden."""

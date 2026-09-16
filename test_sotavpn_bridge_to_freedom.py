@@ -473,6 +473,12 @@ class SettingsCheck(unittest.TestCase):
         )
         self.assertEqual(len(set(suffixes)), len(suffixes))
 
+    def test_answer_shape_defaults_are_off_off_and_777(self):
+        self.assertEqual(settings.APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT, 0)
+        self.assertEqual(settings.RANDOMIZE_ANSWER, 0)
+        self.assertEqual(settings.ANSWER_NODES_LIMIT, 777)
+        self.assertEqual(settings.ENABLE_HTTPS, 1)
+
     def test_the_certificate_files_are_in_the_repository(self):
         for path in (settings.CERTIFICATE_FILE, settings.PRIVATE_KEY_FILE):
             self.assertTrue(os.path.isfile(bridge.path_next_to_the_program(path)), f"{path} is missing")
@@ -893,6 +899,140 @@ class UniqueListsCheck(unittest.TestCase):
         self.assertEqual(self.read_lines(self.servers_path()), ["13.140.54.5", "64.137.54.2"])
         self.assertEqual(self.read_lines(self.servers_path(self.other_key)), ["95.181.152.1"])
         self.assertEqual(self.read_lines(self.fingerprints_path(self.other_key)), ["firefox"])
+
+
+class ServedNodesCheck(unittest.TestCase):
+    """What one answer carries: vendor nodes, multiplied additions, no repeats, mixing, limit."""
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp(prefix="bridge-served-")
+        put_a_stand_in(self, settings, "LOGS_DIRECTORY", self.directory)
+        put_a_stand_in(self, bridge, "JOURNAL_FILE", None)
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+        self.addCleanup(self.close_journal)
+        bridge.start_journal()
+        self.snapshot = bridge.AccountSnapshot("access key of the served nodes", "device id")
+        self.snapshot.unique_servers = {"13.140.54.5", "64.137.54.2"}
+        self.snapshot.unique_names = {"differencescope.com", "gridsnap.org"}
+        self.snapshot.unique_fingerprints = {"chrome", "qq"}
+        self.mixed_argument = None
+
+    def close_journal(self):
+        """Close the journal of this check, so the next check opens its own."""
+        if bridge.JOURNAL_FILE is not None:
+            bridge.JOURNAL_FILE.close()
+            bridge.JOURNAL_FILE = None
+
+    def journal_text(self):
+        with open(os.path.join(self.directory, settings.JOURNAL_FILE_NAME), encoding="utf-8") as handle:
+            return handle.read()
+
+    def expected_names(self):
+        """Every name a fully appended answer carries, in order, without repeats."""
+        return [
+            "Sota AR Argentina ar-bue-01",
+            "Sota NL Netherlands nl-ams-01",
+            "Sota 13.140.54.5 differencescope.com chrome",
+            "Sota 13.140.54.5 differencescope.com qq",
+            "Sota 13.140.54.5 gridsnap.org qq",
+            "Sota 64.137.54.2 differencescope.com chrome",
+            "Sota 64.137.54.2 gridsnap.org chrome",
+            "Sota 64.137.54.2 gridsnap.org qq",
+        ]
+
+    def served_names(self, nodes=None):
+        served = bridge.get_nodes_of_this_answer(self.snapshot, nodes if nodes is not None else sample_nodes())
+        return [node["name"] for node in served]
+
+    def reverse_list(self, values):
+        """A shuffle a check can predict: the whole list turns around."""
+        self.mixed_argument = list(values)
+        values.reverse()
+
+    def test_every_option_off_sends_vendor_nodes_unchanged(self):
+        self.assertEqual(self.served_names(), [node["name"] for node in sample_nodes()])
+
+    def test_append_puts_every_seen_server_name_and_fingerprint_after_vendor_nodes(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        served = bridge.get_nodes_of_this_answer(self.snapshot, sample_nodes())
+        self.assertEqual([node["name"] for node in served], self.expected_names())
+        self.assertEqual(len({node["name"] for node in served}), len(served))
+        template = sample_nodes()[0]
+        for field in ("port", "uuid", "flow", "public_key", "short_id"):
+            self.assertEqual(served[2][field], template[field])
+        self.assertEqual({node["fingerprint"] for node in served}, {"chrome", "qq"})
+
+    def test_multiplied_node_repeating_vendor_combination_is_dropped(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        served = bridge.get_nodes_of_this_answer(self.snapshot, sample_nodes())
+        repeats = [
+            node
+            for node in served
+            if (node["address"], node["sni"], node["fingerprint"]) == ("13.140.54.5", "gridsnap.org", "chrome")
+        ]
+        self.assertEqual(len(repeats), 1)
+        self.assertEqual(repeats[0]["name"], "Sota AR Argentina ar-bue-01")
+
+    def test_empty_fingerprint_list_adds_nothing(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        self.snapshot.unique_fingerprints = set()
+        self.assertEqual(self.served_names(), [node["name"] for node in sample_nodes()])
+
+    def test_empty_name_list_adds_nothing(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        self.snapshot.unique_names = set()
+        self.assertEqual(self.served_names(), [node["name"] for node in sample_nodes()])
+
+    def test_mixing_shuffles_vendor_nodes_and_additions_together(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        put_a_stand_in(self, settings, "RANDOMIZE_ANSWER", 1)
+        put_a_stand_in(self, bridge.random, "shuffle", self.reverse_list)
+        served = self.served_names()
+        self.assertEqual([node["name"] for node in self.mixed_argument], self.expected_names())
+        self.assertEqual(served, list(reversed(self.expected_names())))
+
+    def test_limit_keeps_first_nodes_without_mixing(self):
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 1)
+        self.assertEqual(self.served_names(), ["Sota AR Argentina ar-bue-01"])
+
+    def test_limit_cuts_after_mixing(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        put_a_stand_in(self, settings, "RANDOMIZE_ANSWER", 1)
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 3)
+        put_a_stand_in(self, bridge.random, "shuffle", self.reverse_list)
+        self.assertEqual(self.served_names(), list(reversed(self.expected_names()))[:3])
+
+    def test_zero_limit_sends_every_node(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 0)
+        self.assertEqual(self.served_names(), self.expected_names())
+
+    def test_limit_of_one_cuts_two_vendor_nodes(self):
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 1)
+        self.assertEqual(len(self.served_names()), 1)
+
+    def test_repeats_are_dropped_with_every_option_off(self):
+        repeated = sample_nodes() + [dict(sample_nodes()[0], name="Sota AR Argentina ar-bue-02")]
+        self.assertEqual(len(self.served_names(repeated)), 2)
+
+    def test_journal_tells_how_many_nodes_multiplication_added(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        self.served_names()
+        self.assertIn(
+            "the multiplication added 8 nodes from 2 servers, 2 names and 2 fingerprints",
+            self.journal_text(),
+        )
+
+    def test_journal_tells_how_many_nodes_limit_kept(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        put_a_stand_in(self, settings, "ANSWER_NODES_LIMIT", 3)
+        self.served_names()
+        self.assertIn("the limit kept 3 nodes of 8", self.journal_text())
+
+    def test_served_list_becomes_answer_of_same_size(self):
+        put_a_stand_in(self, settings, "APPEND_MULTIPLY_SERVER_WITH_EVERY_NAME_AND_FINGERPRINT", 1)
+        served = bridge.get_nodes_of_this_answer(self.snapshot, sample_nodes())
+        self.assertEqual(len(bridge.answer_raw(served).splitlines()), len(served))
 
 
 class VendorRefusalCheck(unittest.TestCase):

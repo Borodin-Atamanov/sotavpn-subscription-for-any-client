@@ -145,6 +145,12 @@ When you give no suffix, the program looks at the name your client calls
 itself. A Clash family client gets YAML, a sing-box family client gets JSON,
 and everything else gets base64. This is the same trick the 3x-ui panel uses.
 
+Three values in settings.py shape what an answer carries: whether every
+server seen with every camouflage name and fingerprint is appended after the
+vendor list, whether the order is mixed on every request, and how many nodes
+an answer carries at most. A node that repeats a server, name and fingerprint
+already in the list is dropped, the first one staying.
+
 ## How to put it into your client
 
 v2rayN and v2rayNG: Subscription, Add subscription, paste the address.
