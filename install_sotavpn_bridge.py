@@ -89,15 +89,20 @@ def path_under_the_root(path, home_directory, root):
 
 
 def locations_of_the_installation(mode, home_directory=None, root=os.sep):
-    """Every place one installation touches, as absolute paths."""
+    """Every place one installation touches, as absolute paths.
+
+    The settings lie next to the program and never in a directory of their
+    own: the program imports settings by that name, and in the service as
+    well as in the command only the directory of the program is on the path
+    of the import.
+    """
     home = home_directory or os.path.expanduser("~")
     layout = layout_of_the_mode(mode)
     code_directory = path_under_the_root(layout["code_directory"], home, root)
-    settings_directory = path_under_the_root(layout["settings_directory"], home, root)
     return {
         "mode": mode,
         "code_directory": code_directory,
-        "settings_file": os.path.join(settings_directory, SETTINGS_FILE_NAME),
+        "settings_file": os.path.join(code_directory, SETTINGS_FILE_NAME),
         "unit_file": path_under_the_root(layout["unit_file"], home, root),
         "command_link": path_under_the_root(layout["command_link"], home, root),
         "temporary_directory": layout["temporary_directory"],
@@ -146,10 +151,13 @@ def copy_the_program(source_directory, code_directory):
 
 
 def keep_the_previous_settings(settings_file):
-    """Move the settings of the previous installation aside, its own moment in front."""
+    """Move the settings of the previous installation aside, the moment of their birth in front."""
     if not os.path.exists(settings_file):
         return ""
-    moment = time.strftime(settings.ARCHIVE_MOMENT_FORMAT, time.localtime(os.path.getmtime(settings_file)))
+    moment = time.strftime(
+        settings.ARCHIVE_MOMENT_FORMAT,
+        time.localtime(the_program.moment_of_the_birth_of_a_file(settings_file)),
+    )
     number = 1
     kept = os.path.join(
         os.path.dirname(settings_file),
@@ -369,12 +377,12 @@ def install_the_program(source_directory, locations):
     if lines:
         say("the program runs and says that its ports are open")
     else:
-        if not the_journal_belongs_to_a_new_run(
+        if the_journal_belongs_to_a_new_run(
             identity_of_the_journal(locations), identity_of_the_previous_run
         ):
-            say("the journal still belongs to the previous run, so the new run has not written anything yet")
+            say("the program has started and has not opened its ports yet, look at the journal in a few seconds")
         else:
-            say("the new run has not said yet that its ports are open, look at the journal in a few seconds")
+            say("the program has not started, and the lines of the service will show why")
         lines = journal_lines_of_the_installation(locations)
     for line in lines:
         print(line, flush=True)
@@ -414,13 +422,7 @@ def uninstall_the_program(locations):
     where = send_to_the_trash(locations["code_directory"])
     if where:
         say(f"the program directory went to {where}")
-    settings_directory = os.path.abspath(os.path.dirname(locations["settings_file"]))
-    code_directory = os.path.abspath(locations["code_directory"])
-    if settings_directory == code_directory or settings_directory.startswith(code_directory + os.sep):
-        say("the settings and the logs went with the program directory, they are not lost")
-    else:
-        say(f"the settings stay in {settings_directory}, nothing of them was touched")
-        say(f"the logs stay in {locations['log_directory']} as well")
+    say("the settings and the logs went with the program directory, they are not lost")
     return 0
 
 

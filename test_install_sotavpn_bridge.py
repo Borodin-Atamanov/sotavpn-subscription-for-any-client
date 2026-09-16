@@ -7,6 +7,7 @@ runs on and never uses the real trash.
 
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -23,7 +24,7 @@ class LocationsCheck(unittest.TestCase):
             installer.SYSTEM_MODE, home_directory="/home/somebody", root=os.sep
         )
         self.assertEqual(here["code_directory"], "/opt/sotavpn-bridge")
-        self.assertEqual(here["settings_file"], "/etc/opt/sotavpn-bridge/settings.py")
+        self.assertEqual(here["settings_file"], "/opt/sotavpn-bridge/settings.py")
         self.assertEqual(here["unit_file"], "/etc/systemd/system/sotavpn-bridge.service")
         self.assertEqual(here["command_link"], "/usr/local/bin/sotavpn-bridge")
         self.assertEqual(here["wanted_by"], "multi-user.target")
@@ -49,6 +50,13 @@ class LocationsCheck(unittest.TestCase):
             here = installer.locations_of_the_installation(mode, home_directory="/home/somebody", root=os.sep)
             self.assertEqual(here["log_directory"], os.path.join(here["code_directory"], settings.LOGS_DIRECTORY))
 
+    def test_the_settings_lie_next_to_the_installed_program_in_both_modes(self):
+        for mode in (installer.SYSTEM_MODE, installer.USER_MODE):
+            here = installer.locations_of_the_installation(mode, home_directory="/home/somebody", root=os.sep)
+            self.assertEqual(
+                here["settings_file"], os.path.join(here["code_directory"], installer.SETTINGS_FILE_NAME)
+            )
+
     def test_the_two_modes_share_the_one_name_of_an_installation(self):
         for mode in (installer.SYSTEM_MODE, installer.USER_MODE):
             here = installer.locations_of_the_installation(mode, home_directory="/home/somebody", root=os.sep)
@@ -60,6 +68,40 @@ class LocationsCheck(unittest.TestCase):
         with open(path, encoding="utf-8") as handle:
             written = handle.read()
         self.assertEqual(written.count(settings.INSTALL_NAME), 1)
+
+
+class InstalledLayoutCheck(unittest.TestCase):
+    """The settings of an installation are importable from the program directory alone."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="bridge-layout-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def test_the_program_finds_its_settings_from_the_program_directory_alone(self):
+        for mode in (installer.SYSTEM_MODE, installer.USER_MODE):
+            home = os.path.join(self.root, mode, "home")
+            here = installer.locations_of_the_installation(mode, home_directory=home, root=self.root)
+            os.makedirs(here["code_directory"], exist_ok=True)
+            for name in (installer.SETTINGS_FILE_NAME, f"{settings.PROGRAM_NAME}.py"):
+                shutil.copy2(
+                    os.path.join(installer.PROGRAM_DIRECTORY, name),
+                    os.path.join(here["code_directory"], name),
+                )
+            environment = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+            finished = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    f"import sys; sys.path.insert(0, {here['code_directory']!r})"
+                    f"; import {settings.PROGRAM_NAME}",
+                ],
+                cwd=self.root,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(finished.returncode, 0, f"{mode}: {finished.stderr}")
 
 
 class InstallationCheck(unittest.TestCase):
@@ -178,7 +220,7 @@ class InstallationCheck(unittest.TestCase):
         )
         self.assertEqual(copied, [])
 
-    def test_the_removal_takes_the_program_away_and_leaves_the_settings_of_a_system_installation(self):
+    def test_the_removal_of_a_system_installation_takes_the_settings_with_the_program(self):
         system = installer.locations_of_the_installation(
             installer.SYSTEM_MODE, home_directory=self.home, root=self.root
         )
@@ -186,7 +228,8 @@ class InstallationCheck(unittest.TestCase):
         installer.uninstall_the_program(system)
         self.assertFalse(os.path.exists(system["code_directory"]))
         self.assertFalse(os.path.exists(system["unit_file"]))
-        self.assertTrue(os.path.exists(system["settings_file"]))
+        self.assertFalse(os.path.exists(system["settings_file"]))
+        self.assertIn("went with the program directory", self.said())
         beside = self.kept_beside(os.path.dirname(system["code_directory"]))
         self.assertEqual(len(beside), 1, os.listdir(os.path.dirname(system["code_directory"])))
         self.assertTrue(
@@ -262,6 +305,10 @@ class InstallationCheck(unittest.TestCase):
         self.assertEqual(installer.status_of_the_installation(self.locations), 0)
         self.assertIn(self.locations["code_directory"], self.said())
         self.assertIn("active", self.said())
+
+    def test_the_installer_says_plainly_when_the_program_has_not_started(self):
+        installer.install_the_program(self.source, self.locations)
+        self.assertIn("the program has not started", self.said())
 
     def test_an_unknown_action_is_refused(self):
         self.assertEqual(installer.main(["install_sotavpn_bridge.py", "whatever"]), 2)

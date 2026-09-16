@@ -205,12 +205,12 @@ INSTALL_NAME = "sotavpn-bridge"
 # installation comes from here, so the installer holds none of its own. A
 # leading ~ means the home directory of that account, and %t is the runtime
 # directory of the user (in the service file: the temporary directory).
-# The log directory is not part of this set on purpose: the settings file
-# goes to the target as it is, so the logs lie next to the program, exactly
-# as LOGS_DIRECTORY above says.
+# The settings directory is not part of this set on purpose: the program
+# imports settings by its name and Python looks for it in the directory of
+# the program, so the settings lie next to the program, and the logs lie
+# next to it as well, exactly as LOGS_DIRECTORY above says.
 SYSTEM_INSTALL = {
     "code_directory": f"/opt/{INSTALL_NAME}",
-    "settings_directory": f"/etc/opt/{INSTALL_NAME}",
     "unit_file": f"/etc/systemd/system/{INSTALL_NAME}.service",
     "command_link": f"/usr/local/bin/{INSTALL_NAME}",
     "wanted_by": "multi-user.target",
@@ -219,7 +219,6 @@ SYSTEM_INSTALL = {
 
 USER_INSTALL = {
     "code_directory": f"~/.local/share/{INSTALL_NAME}",
-    "settings_directory": f"~/.local/share/{INSTALL_NAME}",
     "unit_file": f"~/.config/systemd/user/{INSTALL_NAME}.service",
     "command_link": f"~/.local/bin/{INSTALL_NAME}",
     "wanted_by": "default.target",

@@ -97,9 +97,9 @@ python3 install_sotavpn_bridge.py uninstall
 ```
 
 Nothing is ever deleted. The trash takes what goes away, and where a machine
-has none, the files are renamed beside themselves. The settings of a system
-installation stay in place, and the program directory (with the logs inside
-it) goes to the trash, so even the logs are not lost.
+has none, the files are renamed beside themselves. The program directory goes
+to the trash with the settings and the logs inside it, so nothing of them is
+lost.
 
 ## Every answer this program gives, on both ports
 
