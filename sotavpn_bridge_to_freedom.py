@@ -1,7 +1,7 @@
 """Sotavpn subscription bridge to freedom.
 
 Source: https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client
-Author: Borodin-Atamanov <argentidin@gmail.com>
+Author: Borodin-Atamanov
 
 What it is
     A small program that asks the Sota Connect vendor API for the server list

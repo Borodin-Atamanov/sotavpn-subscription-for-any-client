@@ -14,7 +14,7 @@ PROGRAM_VERSION = "1.0.9"
 # its own file, so a reader of a log or of a copied file knows what this is
 # and where it came from. Change these two lines if you publish your own copy.
 PROGRAM_SOURCE_URL = "https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client"
-PROGRAM_AUTHOR = "Borodin-Atamanov <argentidin@gmail.com>"
+PROGRAM_AUTHOR = "Borodin-Atamanov"
 
 # The program tells what it is doing after every step while VERBOSE is 1.
 # Set it to 0 only when the journal noise becomes a problem.
