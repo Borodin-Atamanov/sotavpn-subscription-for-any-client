@@ -118,14 +118,18 @@ is an answer in words rather than in JSON, so it stays apart from the answers
 of the same pass and never breaks the stream of documents. A pass that goes
 well writes no such file at all.
 
-When a new pass collects a fresh list, the previous files move into a
-directory named after the moment the file itself was created, in the shape
-2026-09-23-15-19-45. The journal works the same way: logs/log.log holds the
-run that is working now, and the next start moves the journal of the previous
-run into a dated directory first.
+When a new pass collects a fresh list, the previous files move aside inside
+the same directory: the moment the file itself was created goes in front of
+its name, in the shape 2026-09-23-15-19-45, so the history of one account
+reads in order and nothing is ever overwritten. The journal works the same
+way: logs/log.log holds the run that is working now, and the next start moves
+the journal of the previous run aside first.
 
-One pass makes one directory, so the archive grows with every refresh. Look
-at what it holds and take away what you do not need.
+The directory stays flat: one file per account and per pass, never a
+subdirectory, so a listing shows the whole history at once. Two files of the
+same second get a counted name, for example 2026-09-23-15-19-45-2. The
+archive grows with every refresh. Look at what it holds and take away what
+you do not need.
 
 The logs directory is listed in .gitignore, and it belongs there: a raw
 vendor answer carries the addresses, the keys and the camouflage names of

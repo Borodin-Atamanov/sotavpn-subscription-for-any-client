@@ -487,21 +487,29 @@ class LogArchiveCheck(unittest.TestCase):
             sorted([bridge.answer_file_name(self.key), bridge.answer_file_name(self.other_key)]),
         )
 
-    def test_the_next_pass_moves_the_previous_answers_into_a_dated_directory(self):
+    def test_the_next_pass_moves_the_previous_answers_aside(self):
         bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_answer(self.key, '{"first": true}')
         moment = self.moment_of(self.answer_path())
         bridge.start_a_fresh_log_pass(self.key)
         bridge.keep_vendor_answer(self.key, '{"second": true}')
         self.assertEqual(json.loads(self.read(self.answer_path())), {"second": True})
-        archived = os.path.join(self.directory, moment, bridge.answer_file_name(self.key))
+        archived = os.path.join(self.directory, f"{moment}_{bridge.answer_file_name(self.key)}")
         self.assertEqual(json.loads(self.read(archived)), {"first": True})
+
+    def test_the_logs_directory_stays_flat(self):
+        bridge.start_a_fresh_log_pass(self.key)
+        bridge.keep_vendor_answer(self.key, '{"first": true}')
+        bridge.start_a_fresh_log_pass(self.key)
+        bridge.keep_vendor_error(self.key, 500, "the vendor broke")
+        for entry in os.listdir(self.directory):
+            self.assertTrue(os.path.isfile(os.path.join(self.directory, entry)), entry)
 
     def test_a_pass_that_arrives_first_finds_nothing_to_move(self):
         bridge.start_a_fresh_log_pass(self.key)
         self.assertEqual(os.listdir(self.directory), [])
 
-    def test_two_files_created_in_the_same_second_get_two_directories(self):
+    def test_two_files_created_in_the_same_second_get_two_names(self):
         os.makedirs(self.directory, exist_ok=True)
         first = os.path.join(self.directory, "first")
         second = os.path.join(self.directory, "second")
@@ -510,14 +518,15 @@ class LogArchiveCheck(unittest.TestCase):
         same = time.time()
         os.utime(first, (same, same))
         os.utime(second, (same, same))
-        moved_first = bridge.move_into_a_dated_directory(first)
-        moved_second = bridge.move_into_a_dated_directory(second)
-        self.assertNotEqual(os.path.dirname(moved_first), os.path.dirname(moved_second))
+        moved_first = bridge.move_a_log_file_aside(first)
+        moved_second = bridge.move_a_log_file_aside(second)
+        self.assertNotEqual(moved_first, moved_second)
+        self.assertEqual(os.path.dirname(moved_first), self.directory)
         self.assertTrue(os.path.exists(moved_first))
         self.assertTrue(os.path.exists(moved_second))
 
     def test_a_file_that_is_not_there_is_not_moved(self):
-        self.assertEqual(bridge.move_into_a_dated_directory(self.answer_path()), "")
+        self.assertEqual(bridge.move_a_log_file_aside(self.answer_path()), "")
 
     def test_the_journal_of_the_previous_run_moves_away_on_a_new_start(self):
         os.makedirs(self.directory, exist_ok=True)
@@ -530,7 +539,7 @@ class LogArchiveCheck(unittest.TestCase):
         self.close_the_journal()
         self.assertNotIn("yesterday", fresh)
         self.assertIn("the new run writes its own journal", fresh)
-        self.assertIn("yesterday", self.read(os.path.join(self.directory, moment, settings.JOURNAL_FILE_NAME)))
+        self.assertIn("yesterday", self.read(os.path.join(self.directory, f"{moment}_{settings.JOURNAL_FILE_NAME}")))
 
     def test_the_quiet_mode_still_writes_the_journal(self):
         self.assertEqual(settings.VERBOSE, 0)
@@ -574,7 +583,7 @@ class LogArchiveCheck(unittest.TestCase):
         moment = self.moment_of(self.error_path())
         bridge.start_a_fresh_log_pass(self.key)
         self.assertFalse(os.path.exists(self.error_path()))
-        archived = os.path.join(self.directory, moment, bridge.error_file_name(self.key))
+        archived = os.path.join(self.directory, f"{moment}_{bridge.error_file_name(self.key)}")
         self.assertIn("the vendor broke", self.read(archived))
 
 

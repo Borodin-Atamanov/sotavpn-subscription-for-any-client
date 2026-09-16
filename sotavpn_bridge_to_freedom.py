@@ -25,11 +25,15 @@ How to run it
 What it keeps
     Every answer the vendor gives is written to logs/<access key>.json as
     readable JSON with tab indentation, one account in one file and an empty
-    line between two answers, and the answers of the previous pass move into
-    a directory named after the moment that file was created. The bodies the
-    vendor sends with a refusal go to logs/<access key>.errors.txt and move
-    the same way. The journal of the run goes to logs/log.log and moves the
-    same way on the next start.
+    line between two answers. When a new pass starts, the file of the previous
+    pass moves aside inside the same directory, with the moment that file was
+    created in front of its name. The bodies the vendor sends with a refusal go
+    to the log file named after the access key of the account and move the same
+    way. The journal of the run goes to logs/log.log and moves the same way on
+    the next start.
+    The directory stays flat: an archived log is a file beside the current one,
+    never a file inside a directory of its own, so a reader sees the whole
+    history at once and the order is in the names.
     The logs directory is listed in .gitignore, because a raw vendor answer
     carries the addresses and the keys of the account.
 
@@ -117,26 +121,29 @@ def report_a_log_problem(message):
     tell(f"{message}, the program keeps running without that log")
 
 
-def dated_directory_for(moment):
-    """A directory named by a moment, counted up when that very moment repeats."""
-    base = os.path.join(logs_directory(), moment)
-    candidate = base
-    number = 2
-    while os.path.exists(candidate):
-        candidate = f"{base}-{number}"
-        number += 1
-    os.makedirs(candidate, exist_ok=True)
-    return candidate
+def name_of_the_archived_log(path, moment, number):
+    """The name of an archived log: the moment in front of the name of the file."""
+    if number == 1:
+        return f"{moment}_{os.path.basename(path)}"
+    return f"{moment}-{number}_{os.path.basename(path)}"
 
 
-def move_into_a_dated_directory(path):
-    """Move one log file into a directory named by the moment that file was created."""
+def move_a_log_file_aside(path):
+    """Move one log file aside in the logs directory, the moment in front of its name.
+
+    The directory stays flat: an archived log is a file next to the current
+    one, never a file inside a directory of its own.
+    """
     if not os.path.exists(path):
         return ""
     try:
         created = os.path.getmtime(path)
         moment = time.strftime(settings.ARCHIVE_MOMENT_FORMAT, time.localtime(created))
-        target = os.path.join(dated_directory_for(moment), os.path.basename(path))
+        number = 1
+        target = os.path.join(logs_directory(), name_of_the_archived_log(path, moment, number))
+        while os.path.exists(target):
+            number += 1
+            target = os.path.join(logs_directory(), name_of_the_archived_log(path, moment, number))
         os.replace(path, target)
         return target
     except OSError as error:
@@ -144,9 +151,9 @@ def move_into_a_dated_directory(path):
         return ""
 
 
-def name_of_the_directory_that_holds(target):
-    """The dated directory of a moved file, as a path a reader can follow."""
-    return f"{settings.LOGS_DIRECTORY}/{os.path.basename(os.path.dirname(target))}"
+def path_as_the_reader_knows_it(target):
+    """An archived log as a path a reader can follow from the program directory."""
+    return f"{settings.LOGS_DIRECTORY}/{os.path.basename(target)}"
 
 
 def answer_file_name(access_key):
@@ -175,12 +182,9 @@ def start_a_fresh_log_pass(access_key):
         if not make_logs_directory():
             return
         for path in (answer_file_path(access_key), error_file_path(access_key)):
-            moved = move_into_a_dated_directory(path)
+            moved = move_a_log_file_aside(path)
             if moved:
-                tell(
-                    f"the log of the previous pass moved to "
-                    f"{name_of_the_directory_that_holds(moved)}/{os.path.basename(moved)}"
-                )
+                tell(f"the log of the previous pass moved to {path_as_the_reader_knows_it(moved)}")
 
 
 def pretty_answer(raw_answer):
@@ -226,17 +230,14 @@ def start_journal():
         if not make_logs_directory():
             return
         path = os.path.join(logs_directory(), settings.JOURNAL_FILE_NAME)
-        moved = move_into_a_dated_directory(path)
+        moved = move_a_log_file_aside(path)
         try:
             JOURNAL_FILE = open(path, "a", encoding="utf-8")
         except OSError as error:
             JOURNAL_FILE = None
             print(f"the journal file is not writable: {error}", flush=True)
     if moved:
-        tell(
-            f"the journal of the previous run moved to "
-            f"{name_of_the_directory_that_holds(moved)}/{os.path.basename(moved)}"
-        )
+        tell(f"the journal of the previous run moved to {path_as_the_reader_knows_it(moved)}")
 
 
 def write_journal_line(line):

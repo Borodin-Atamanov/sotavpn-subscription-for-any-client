@@ -127,23 +127,25 @@ LOGS_DIRECTORY = "logs"
 # separates two documents. A pass asks the vendor thirty seven times: once for
 # the location list, once per location for its configuration, and once for the
 # profile, so one pass cannot live in a single JSON document. The next pass
-# moves that file into a dated directory before it writes anything, so one
-# file always holds one pass of one account, and two accounts never mix.
+# moves that file aside inside the same directory before it writes anything,
+# the moment in front of its name, so one file always holds one pass of one
+# account, two accounts never mix, and the directory stays flat.
 ANSWER_FILE_SUFFIX = ".json"
 
 # The bodies the vendor sends together with a refusal: a wrong access key, a
 # location it no longer serves, a call it throttled. They go into a file of
-# their own, named after the access key, and move into the dated directory
-# together with the answers of the same pass. Kept apart from the answers,
+# their own, named after the access key, and move aside together with the
+# answers of the same pass. Kept apart from the answers,
 # because a refusal is an answer in words, not in JSON, and mixing the two
 # would ruin the stream of documents.
 ERROR_FILE_SUFFIX = "-errors.log"
 
 # The journal of the current run. The next start moves the journal of the
-# previous run into a dated directory first, so one file always belongs to
-# one run.
+# previous run aside inside the same directory first, the moment in front of
+# its name, so one file always belongs to one run.
 JOURNAL_FILE_NAME = "log.log"
 
-# The name of a dated directory: the moment the moved file itself was
-# created, in the same shape Pyntara uses for its timestamps.
+# The moment an archived log carries in front of its own name: the moment
+# that file itself was created, in the same shape Pyntara uses for its
+# timestamps.
 ARCHIVE_MOMENT_FORMAT = "%Y-%m-%d-%H-%M-%S"
