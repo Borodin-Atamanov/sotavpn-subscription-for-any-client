@@ -9,9 +9,9 @@ program has nothing else to configure.
 PROGRAM_NAME = "sotavpn_bridge_to_freedom"
 PROGRAM_VERSION = "1.0.0"
 
-# The program tells what it is doing after every step. Set it to False only
-# when the journal noise becomes a problem.
-SPEAK_EVERY_STEP = True
+# The program tells what it is doing after every step while VERBOSE is 1.
+# Set it to 0 only when the journal noise becomes a problem.
+VERBOSE = 1
 
 # Address the program listens on. 127.0.0.1 means this machine only, which
 # is the safe default: the subscription URL contains your access key, so

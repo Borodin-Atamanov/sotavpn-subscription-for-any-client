@@ -60,7 +60,7 @@ def path_next_to_the_program(path):
 
 def tell(message):
     """Write one line into the journal, with the time in front of it."""
-    if not settings.SPEAK_EVERY_STEP:
+    if not settings.VERBOSE:
         return
     stamp = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"{stamp} {settings.PROGRAM_NAME}: {message}", flush=True)

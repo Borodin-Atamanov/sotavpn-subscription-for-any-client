@@ -172,6 +172,9 @@ class SettingsCheck(unittest.TestCase):
         self.assertGreater(settings.VENDOR_TIME_OUT_SECONDS, 0)
         self.assertGreaterEqual(settings.VENDOR_ATTEMPTS, 1)
 
+    def test_verbose_is_a_switch_of_one_and_zero(self):
+        self.assertIn(settings.VERBOSE, (0, 1))
+
     def test_the_vendor_and_the_name_prefix_are_set(self):
         self.assertTrue(settings.VENDOR_HOST)
         self.assertTrue(settings.VENDOR_BASE_PATH.startswith("/"))
