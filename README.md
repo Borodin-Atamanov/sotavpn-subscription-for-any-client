@@ -23,7 +23,7 @@ better and for free.
 ## Quick start
 
 ```bash
-git clone https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client
+git clone --depth 1 https://github.com/Borodin-Atamanov/sotavpn-subscription-for-any-client
 cd sotavpn-subscription-for-any-client
 python3 sotavpn_bridge_to_freedom.py
 ```
@@ -31,20 +31,26 @@ python3 sotavpn_bridge_to_freedom.py
 The program tells you what it is doing and then waits. The first line of the
 journal says which ports are open.
 
-Now put this address into your client, replacing the access key with yours:
+Now put one of these addresses into your client, replacing the access key with
+yours. The program serves both at once, and the ports are values in settings.py:
 
 ```
 http://127.0.0.1:25080/sub/your-access-key
+https://127.0.0.1:25443/sub/your-access-key
 ```
+
+The certificate of the secure port is self signed, so a client needs permission
+to accept it. The section about HTTPS below explains that switch.
 
 The first request takes about fifteen seconds, because the program walks all
 locations of the service. Later requests are answered at once.
 
 If you want to know whether it works before touching a client, open the root
-page in a browser:
+page of either port in a browser:
 
 ```
 http://127.0.0.1:25080/
+https://127.0.0.1:25443/
 ```
 
 It lists every answer this program can give, with ready to use addresses.
@@ -53,19 +59,10 @@ To stop the program, press Control and C in the same terminal.
 
 ## Every answer this program gives
 
-Add a suffix after the access key:
-
-```
-/sub/<access key>              the list in base64, this is the default
-/sub/<access key>/raw          the same list as open vless links
-/sub/<access key>/clash        YAML for Clash, Mihomo and Stash
-/sub/<access key>/singbox      JSON outbounds for sing-box and Hiddify
-/sub/<access key>/singbox-full a complete sing-box configuration with tun
-/sub/<access key>/xray         JSON outbounds for Xray and the 3x-ui panel
-/sub/<access key>/xray-full    a complete Xray configuration with local socks
-/sub/<access key>/html         a page for a human being
-/sub/<access key>/csv          a table for manual entry
-```
+A suffix after the access key chooses the answer. The whole list of answers,
+the suffix of each one and the description of each one are values in settings.py,
+in ANSWER_FORMATS, so this file does not repeat them. The root page of the bridge
+prints that list with a ready to use address for every answer.
 
 When you give no suffix, the program looks at the name your client calls
 itself. A Clash family client gets YAML, a sing-box family client gets JSON,
@@ -82,8 +79,9 @@ Hiddify: Add profile, Add from URL, paste the address.
 Clash Verge, Mihomo Party, ClashX: Profiles, Add profile from URL, paste the
 address.
 
-sing-box and Xray by hand: take `/sub/<access key>/singbox-full` or
-`/sub/<access key>/xray-full` and save the answer as a configuration file.
+sing-box and Xray by hand: open the root page and take the address of the full
+answer, the one that carries a complete configuration, then save that answer as
+a file.
 
 3x-ui panel: Xray, outbound subscriptions, Create an outbound subscription,
 paste the address, enable private addresses, because the address points to
@@ -106,40 +104,25 @@ you.
 
 ## The logs directory
 
-The program keeps three files next to itself, in the logs directory.
+The program writes logs: the answers the vendor gives, the bodies the vendor
+sends with a refusal, and the journal of its own run. They lie next to the
+program, in the directory named by LOGS_DIRECTORY in settings.py.
 
-logs/<access key>.json holds the answers the vendor gave during the last
-pass, as readable JSON printed with tabs, and an empty line separates two
-answers. One account keeps one file, so two accounts never mix.
+How those files are named, which suffix each one carries and how the files of a
+previous pass are put aside are values in settings.py as well, so this file does
+not describe them. The directory stays flat: one file per account and per pass,
+never a subdirectory.
 
-logs/<access key>-errors.log holds the bodies the vendor sent with a refusal,
-with the moment and the code of the refusal in front of each body. A refusal
-is an answer in words rather than in JSON, so it stays apart from the answers
-of the same pass and never breaks the stream of documents. A pass that goes
-well writes no such file at all.
-
-When a new pass collects a fresh list, the previous files move aside inside
-the same directory: the moment the file itself was created goes in front of
-its name, in the shape 2026-09-23-15-19-45, so the history of one account
-reads in order and nothing is ever overwritten. The journal works the same
-way: logs/log.log holds the run that is working now, and the next start moves
-the journal of the previous run aside first.
-
-The directory stays flat: one file per account and per pass, never a
-subdirectory, so a listing shows the whole history at once. Two files of the
-same second get a counted name, for example 2026-09-23-15-19-45-2. The
-archive grows with every refresh. Look at what it holds and take away what
-you do not need.
-
-The logs directory is listed in .gitignore, and it belongs there: a raw
-vendor answer carries the addresses, the keys and the camouflage names of
-your account, so the directory is as private as your access key.
+The directory is listed in .gitignore, and it belongs there: a raw vendor answer
+carries the addresses, the keys and the camouflage names of your account, so the
+directory is as private as your access key.
 
 ## HTTPS and the certificate
 
-The program serves plain HTTP on port 25080 and HTTPS on port 25443 at the
-same time. The root page of each port tells the addresses with that very
-scheme, so a visitor of the secure port is never sent to the plain one.
+The program serves plain HTTP and HTTPS at the same time. The root page of each
+port tells the addresses with that very scheme, so a visitor of the secure port
+is never sent to the plain one. The ports themselves are values in settings.py,
+and the first lines of the journal print the addresses the program opened.
 
 The certificate in the certs directory is self signed, and its private key is
 in this public repository. That means two things. Your traffic cannot be read
@@ -161,7 +144,7 @@ Because the certificate is self signed, the client must be told to accept it.
 Most clients have such a switch: in v2rayN it is the option to allow an
 insecure connection, in NekoBox it is in the settings, in Hiddify it is a
 checkbox when the address is added. A client without such a switch simply
-uses the plain port 25080.
+uses the plain port.
 
 If you want a certificate that clients trust without any switch, put a real
 domain in front and let Caddy or nginx get a Let's Encrypt certificate. The
@@ -192,37 +175,6 @@ configure. There are no environment variables and no command line options.
 
 Nothing secret belongs in settings.py. Your access key travels in the address
 only, so the file can be published as it is.
-
-## Which device the vendor sees
-
-The vendor API wants a device identifier in the X-HwID header. The vendor
-application fills that header with the sha256 of the machine id of the
-machine it runs on, so the same hash belongs to the same device:
-
-```bash
-printf '%s' "$(cat /etc/machine-id)" | sha256sum
-```
-
-settings.py carries one such hash, taken from the machine where this program
-was written and checked against the vendor application there. Every copy of
-this program therefore introduces itself to the vendor as that one device,
-because a public repository cannot carry a personal hash of each reader.
-
-Two ways to be a device of your own. Take your hash with the command above
-and put it into the address of the subscription, which does not touch any
-file:
-
-```
-http://127.0.0.1:25080/sub/your-access-key?hwid=your-own-hash
-```
-
-Or put it into DEFAULT_HARDWARE_ID in settings.py and every request uses it.
-An empty DEFAULT_HARDWARE_ID makes the program invent a random identifier per
-access key, which the vendor API also accepts.
-
-The identifier is not a secret: a hash cannot be turned back into the machine
-id. It does identify the machine it came from, so do not publish your own
-hash unless you mean to.
 
 ## Autostart
 

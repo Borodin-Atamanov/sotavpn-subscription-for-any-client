@@ -651,11 +651,13 @@ class VendorRefusalCheck(unittest.TestCase):
 
 
 class ReadmeCheck(unittest.TestCase):
-    def test_the_readme_names_the_log_files_with_the_suffixes_of_the_settings(self):
+    """The readme points at the settings instead of repeating their values."""
+
+    def test_the_readme_leaves_the_log_file_names_to_the_settings(self):
         with open(os.path.join(bridge.PROGRAM_DIRECTORY, "README.md"), encoding="utf-8") as handle:
             readme = handle.read()
-        self.assertIn(f"logs/{bridge.answer_file_name('<access key>')}", readme)
-        self.assertIn(f"logs/{bridge.error_file_name('<access key>')}", readme)
+        self.assertNotIn(bridge.answer_file_name("<access key>"), readme)
+        self.assertNotIn(bridge.error_file_name("<access key>"), readme)
 
 
 class IgnoreRuleCheck(unittest.TestCase):

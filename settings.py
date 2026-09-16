@@ -64,6 +64,9 @@ VENDOR_PAUSE_BETWEEN_REQUESTS_SECONDS = 0.1
 # hash with the command above, put it either here or into ?hwid= of the
 # subscription address, and your device is your own. An empty value makes the
 # bridge invent a random stable id per access key, which the API also accepts.
+# The identifier is not a secret: a hash cannot be turned back into the machine
+# id. It does name the machine it came from, so do not publish your own hash
+# unless you mean to.
 DEFAULT_HARDWARE_ID = "bc595c0af2e559eb9b19aec5aaf597dd6546b6945df791990de5f3d098a4289e"
 
 # The user agent the vendor client sends. Kept as it is, because the vendor
