@@ -37,6 +37,7 @@ import html
 import json
 import os
 import secrets
+import signal
 import ssl
 import sys
 import threading
@@ -49,6 +50,13 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import settings
 
 PROGRAM_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+STOP_REQUESTED = threading.Event()
+
+
+def note_the_stop_request(signal_number, stack_frame):
+    """A polite stop: the program closes its ports itself and says so."""
+    tell(f"a stop request arrived, signal {signal_number}, the ports are closing")
+    STOP_REQUESTED.set()
 
 
 def path_next_to_the_program(path):
@@ -638,13 +646,21 @@ class BridgeAnswerHandler(BaseHTTPRequestHandler):
         tell(f"request from {self.address_string()} for {self.masked_path()}")
 
 
+def explain_busy_port(port, value_name):
+    """Tell the user who holds the port and how to look at it."""
+    tell(f"the port {port} is not free, another program holds it")
+    tell(f"look at the holder with: ss -tlnp | grep {port}")
+    tell(f"on macOS use: lsof -i :{port}, on Windows use: netstat -ano | findstr {port}")
+    tell(f"stop the holder, or take another number in settings.py: {value_name}")
+
+
 def start_plain_server():
     """Serve plain HTTP, which works with every client."""
     try:
         server = HTTPServer((settings.LISTEN_ADDRESS, settings.HTTP_PORT), BridgeAnswerHandler)
     except OSError as error:
         tell(f"the plain port {settings.HTTP_PORT} is not free: {error}")
-        tell("another program holds it, change HTTP_PORT in settings.py")
+        explain_busy_port(settings.HTTP_PORT, "HTTP_PORT")
         return None
     tell(f"plain HTTP is listening on http://{settings.LISTEN_ADDRESS}:{settings.HTTP_PORT}")
     return server
@@ -673,7 +689,7 @@ def start_https_server():
         server.socket = context.wrap_socket(server.socket, server_side=True)
     except OSError as error:
         tell(f"the HTTPS port {settings.HTTPS_PORT} is not usable: {error}")
-        tell("another program holds it, change HTTPS_PORT in settings.py")
+        explain_busy_port(settings.HTTPS_PORT, "HTTPS_PORT")
         return None
     except ssl.SSLError as error:
         tell(f"the certificate is not usable: {error}")
@@ -684,6 +700,9 @@ def start_https_server():
 
 
 def main():
+    for signal_name in ("SIGINT", "SIGTERM"):
+        if hasattr(signal, signal_name):
+            signal.signal(getattr(signal, signal_name), note_the_stop_request)
     tell(f"{settings.PROGRAM_NAME} version {settings.PROGRAM_VERSION} starts")
     tell(f"values were taken from settings.py next to the program, the vendor is {settings.VENDOR_HOST}")
     servers = [server for server in (start_plain_server(), start_https_server()) if server is not None]
@@ -696,13 +715,11 @@ def main():
         thread.start()
         threads.append(thread)
     tell("the bridge is ready, put an address from the page above into your client")
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        tell("stop was asked for, closing the ports")
-        for server in servers:
-            server.shutdown()
+    STOP_REQUESTED.wait()
+    for server in servers:
+        server.shutdown()
+        server.server_close()
+    tell("the ports are closed, the program stops")
     return 0
 
 

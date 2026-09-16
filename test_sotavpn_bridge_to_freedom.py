@@ -16,6 +16,12 @@ import unittest
 import settings
 import sotavpn_bridge_to_freedom as bridge
 
+# While the checks run the program stays quiet, and the runner prints no
+# decorative line of repeated symbols: plain result, plain words.
+settings.VERBOSE = 0
+unittest.TextTestResult.separator1 = ""
+unittest.TextTestResult.separator2 = ""
+
 
 def sample_nodes():
     """Two nodes that look exactly like the ones the vendor hands out."""

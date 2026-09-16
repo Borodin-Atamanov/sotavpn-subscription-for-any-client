@@ -7,7 +7,7 @@ program has nothing else to configure.
 
 # Name and version the program shows in its journal and in HTTP answers.
 PROGRAM_NAME = "sotavpn_bridge_to_freedom"
-PROGRAM_VERSION = "1.0.0"
+PROGRAM_VERSION = "1.0.7"
 
 # The program tells what it is doing after every step while VERBOSE is 1.
 # Set it to 0 only when the journal noise becomes a problem.
